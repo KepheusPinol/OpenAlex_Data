@@ -25,7 +25,6 @@ config.max_retries = 0
 config.retry_backoff_factor = 0.1
 config.retry_http_codes = RETRY_HTTP_CODES
 
-
 def setup_pyalex():
     """ Setup pyalex configuration. """
     pyalex.config.email = EMAIL
@@ -266,7 +265,7 @@ def count_terms_works(term_lists):
     # Calculate and store TF-IDF values
     tf_idf = {}
     for term, tf in term_frequency.items():
-        df = document_frequency_list[term]
+        df = document_frequency[term]
         idf = math.log(num_documents / (1 + df))
         tf_idf[term] = tf * idf
 
@@ -354,6 +353,37 @@ def enrichment_publications_referencing(all_items, referencing_ids):
     save_to_json('publications.json', all_items)
 
 
+def enrichment_publications(all_items, referencing_ids, reference):
+    """
+    Enrich the publications by integrating 'kombinierte Terme' from referenced works.
+
+    Parameters:
+    all_items (list): A list of all publications.
+    referenced_works (list): A list of dictionaries where each dictionary contains 'id' and 'kombinierte Terme' of a referenced work.
+
+    Returns:
+    list: A list of enriched publications with added 'kombinierte Terme referenced' information.
+    """
+
+    # Convert referenced_works list to a dictionary for quick lookup
+    referencing_works_dict = {work['id']: work['kombinierte Terme Titel und Abstract'] for work in referencing_ids}
+    combined_terms_works_dict = {work['id']: work['kombinierte Terme Titel und Abstract'] for work in all_items}
+
+    # Enrich each item in all_items
+    for item in all_items:
+        if reference in item:
+            combined_terms_referencing = []
+            for item_ref in item[reference]:
+                if item_ref in referencing_works_dict:
+                    if item_ref not in combined_terms_works_dict:
+                        # Add the 'kombinierte Terme' from the referenced work
+                        combined_terms_referencing.append(referencing_works_dict[item_ref])
+            # Aggregate terms and store in the item
+            item['kombinierte Terme ' + reference] = count_terms_works(combined_terms_referencing)
+
+    save_to_json('publications.json', all_items)
+
+
 # Hauptprogrammfluss
 # pager = Works().filter(primary_topic={"id": "T13616"}).select(["id", "title", "authorships", "referenced_works", "abstract_inverted_index","referenced_works_count", "cited_by_count"])
 
@@ -379,7 +409,7 @@ referenced_publications_ids_complete = []
 
 referenced_works_list = []
 referencing_works_list = []
-#document_frequency_list = {}
+document_frequency_list = {}
 
 # Beispiel Aufruf der Funktion
 get_publications(pager, all_publications_unique, referenced_works_list)
@@ -389,5 +419,7 @@ term_normalisation(referenced_publications_unique, "referenced_publications_uniq
 term_normalisation(referencing_publications_unique, "referencing_publications_unique.json")
 term_normalisation(all_publications_unique, "publications.json")
 #document_frequency(all_publications_unique)
-enrichment_publications_referenced(all_publications_unique, referenced_publications_unique)
-enrichment_publications_referencing(all_publications_unique, referencing_publications_unique)
+#enrichment_publications_referenced(all_publications_unique, referenced_publications_unique)
+#enrichment_publications_referencing(all_publications_unique, referencing_publications_unique)
+enrichment_publications(all_publications_unique, referencing_publications_unique, 'referencing works')
+enrichment_publications(all_publications_unique, referenced_publications_unique, 'referenced_works')
