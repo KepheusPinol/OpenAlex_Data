@@ -34,7 +34,7 @@ def setup_pyalex():
     config.retry_http_codes = RETRY_HTTP_CODES
 
 
-def get_publications(pager, all_items, referenced_works_list):
+def get_publications(pager, all_publications_unique, referenced_works_list):
     for page in chain(pager.paginate(per_page=200, n_max=None)):
         for item in page:
             item['id'] = item['id'].replace("https://openalex.org/", "")
@@ -48,14 +48,14 @@ def get_publications(pager, all_items, referenced_works_list):
             ]
             referenced_works_list.extend({'id': ref_id} for ref_id in referenced_works_id)
 
-            all_items.append({
+            all_publications_unique.append({
                 'id': item['id'], 'title': item['title'], 'authorships': item['authorships'],
                 'abstract': item["abstract"], 'cited_by_count': item['cited_by_count'],
                 'referenced_works': referenced_works_id, 'referenced_works_count': item['referenced_works_count']
             })
 
-    save_to_json("works.json", all_items)
-    print(f"Anzahl der IDs: {len(all_items)}")
+    save_to_json("publications.json", all_publications_unique)
+    print(f"Anzahl der IDs: {len(all_publications_unique)}")
     print(f"Gesamtanzahl der Referenced Works: {len(referenced_works_list)}")
 
 
@@ -90,7 +90,7 @@ def get_referenced_works(referenced_works_list, referenced_ids, referenced_works
                     'referenced_works_count': item_ref['referenced_works_count']
                 })
 
-    save_to_json("referenced_works.json", referenced_works)
+    save_to_json("referenced_publications_unique.json", referenced_works)
 
     summe_referenced_work_Count = sum(item.get('referenced_works_count', 0) for item in all_items)
     print("Die Summe der 'referenced_works_count' ist:", summe_referenced_work_Count)
@@ -112,7 +112,7 @@ def get_referencing_works(referencing_works_list, referencing_ids, all_items):
         item['referencing works'] = referencing_works_id
 
     save_to_json("referencing_works.json", referencing_works_list)
-    save_to_json("works.json", all_items)
+    save_to_json("publications.json", all_items)
 
     print(f"Anzahl der Referencing Works: {len(referencing_works_list)}")
 
@@ -129,7 +129,7 @@ def get_referencing_works(referencing_works_list, referencing_ids, all_items):
             })
 
     referencing_ids.sort(key=lambda x: x.get('Anzahl', 0), reverse=True)
-    save_to_json("referencing_ids.json", referencing_ids)
+    save_to_json("referencing_publications_unique.json", referencing_ids)
 
     print(f"Unique Referencing Works Count: {len(referencing_ids)}")
     summe_anzahl = sum(item.get('Anzahl', 0) for item in referencing_ids)
@@ -209,6 +209,15 @@ def count_terms(text):
 
     return term_count
 
+def document_frequency(all_items):
+    for item in all_items:
+        for term in item['kombinierte Terme Titel und Abstract']:
+            if term not in document_frequency_list:
+                document_frequency_list[term] = 0
+            else:
+                document_frequency_list[term] += 1
+
+    return document_frequency_list
 
 def count_terms_works(term_lists):
     """
@@ -235,7 +244,7 @@ def count_terms_works(term_lists):
     #    filtered_term_lists.append(filtered_terms)
 
     # Calculate number of documents (filtered term lists)
-    num_documents = len(all_items)
+    num_documents = len(all_publications_unique)
 
     # Initialize term frequency and document frequency dictionaries
     term_frequency = {}
@@ -257,7 +266,7 @@ def count_terms_works(term_lists):
     # Calculate and store TF-IDF values
     tf_idf = {}
     for term, tf in term_frequency.items():
-        df = document_frequency[term]
+        df = document_frequency_list[term]
         idf = math.log(num_documents / (1 + df))
         tf_idf[term] = tf * idf
 
@@ -311,7 +320,7 @@ def enrichment_publications_referenced(all_items, referenced_works):
             # Aggregate terms and store in the item
             item['kombinierte Terme referenced'] = count_terms_works(combined_terms_referenced)
 
-    save_to_json('works.json', all_items)
+    save_to_json('publications.json', all_items)
 
 
 def enrichment_publications_referencing(all_items, referencing_ids):
@@ -342,7 +351,7 @@ def enrichment_publications_referencing(all_items, referencing_ids):
             # Aggregate terms and store in the item
             item['kombinierte Terme referencing'] = count_terms_works(combined_terms_referencing)
 
-    save_to_json('works.json', all_items)
+    save_to_json('publications.json', all_items)
 
 
 # Hauptprogrammfluss
@@ -352,19 +361,33 @@ pager = Works().filter(ids={"openalex": "W2053522485"}).select(
     ["id", "title", "authorships", "referenced_works", "abstract_inverted_index", "cited_by_count",
      "referenced_works_count", ])
 
-referenced_ids = []
-referencing_ids = []
-all_items = []
-referenced_works = []
+# referencing_publications_unique enthält einmalig die Metadaten aller zitierenden Publikationen der Ausgangspublikationen
+referencing_publications_unique = []
+
+# all_publications_unique enthält einmalig die Metadaten aller Ausgangspublikationen
+all_publications_unique = []
+
+# referenced_publications_unique enthält einmalig die Metadaten aller zitierten Publikationen der Ausgangspublikationen
+referenced_publications_unique = []
+
+# referencing_publications_complete enthält die Metadaten aller zitierenden Publikationen in der Häufigkeit mit der sie die Ausgangspublikationen zitieren
+referencing_publications_complete = []
+
+# referenecd_publications_ids_complete enthält die IDs aller zitierten Publikationen in der Häufigkeit mit der sie von den Ausgangspublikationen zitiert werden
+referenced_publications_ids_complete = []
+
+
 referenced_works_list = []
 referencing_works_list = []
+#document_frequency_list = {}
 
 # Beispiel Aufruf der Funktion
-get_publications(pager, all_items, referenced_works_list)
-get_referenced_works(referenced_works_list, referenced_ids, referenced_works, all_items)
-get_referencing_works(referencing_works_list, referencing_ids, all_items)
-term_normalisation(referenced_works, "referenced_works.json")
-term_normalisation(referencing_ids, "referencing_ids.json")
-term_normalisation(all_items, "works.json")
-enrichment_publications_referenced(all_items, referenced_works)
-enrichment_publications_referencing(all_items, referencing_ids)
+get_publications(pager, all_publications_unique, referenced_works_list)
+get_referenced_works(referenced_works_list, referenced_publications_ids_complete, referenced_publications_unique, all_publications_unique)
+get_referencing_works(referencing_works_list, referencing_publications_unique, all_publications_unique)
+term_normalisation(referenced_publications_unique, "referenced_publications_unique.json")
+term_normalisation(referencing_publications_unique, "referencing_publications_unique.json")
+term_normalisation(all_publications_unique, "publications.json")
+#document_frequency(all_publications_unique)
+enrichment_publications_referenced(all_publications_unique, referenced_publications_unique)
+enrichment_publications_referencing(all_publications_unique, referencing_publications_unique)
