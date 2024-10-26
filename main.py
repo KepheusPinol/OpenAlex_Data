@@ -1,4 +1,5 @@
 # %%
+import nltk
 import pyalex
 from pyalex import Works, config
 import json
@@ -11,6 +12,9 @@ from nltk.stem.snowball import SnowballStemmer
 from langdetect import detect, DetectorFactory
 from langdetect.lang_detect_exception import LangDetectException
 
+# Sicherstellen, dass die Stopwörter heruntergeladen sind
+nltk.download('stopwords')
+
 # Initialisierung mit einem festgelegten Seed für konsistente Ergebnisse in 'langdetect'
 DetectorFactory.seed = 0
 
@@ -18,12 +22,12 @@ DetectorFactory.seed = 0
 EMAIL = "chr.brenscheidt@gmail.com"
 RETRY_HTTP_CODES = [429, 500, 503]
 
-pyalex.config.email = EMAIL
+#pyalex.config.email = EMAIL
 
-config = pyalex.config
-config.max_retries = 0
-config.retry_backoff_factor = 0.1
-config.retry_http_codes = RETRY_HTTP_CODES
+#config = pyalex.config
+#config.max_retries = 0
+#config.retry_backoff_factor = 0.1
+#config.retry_http_codes = RETRY_HTTP_CODES
 
 def setup_pyalex():
     """ Setup pyalex configuration. """
@@ -212,38 +216,18 @@ def document_frequency(all_items, document_frequency_list):
     for item in all_items:
         for term in item['kombinierte Terme Titel und Abstract']:
             if term not in document_frequency_list:
-                document_frequency_list[term] = 0
+                document_frequency_list[term] = 1
             else:
                 document_frequency_list[term] += 1
 
+    save_to_json('document_frequency.json', document_frequency_list)
+
     return document_frequency_list
 
-def count_terms_works(term_lists, document_frequency_list):
-    """
-    Aggregates terms from a list of term dictionaries, calculating the TF-IDF value for each term.
-
-    Parameters:
-    term_lists (list): A list of dictionaries where each dictionary contains terms and their counts.
-
-    Returns:
-    dict: A dictionary with terms and their TF-IDF values.
-    """
-
-    # Remove terms already present in 'all_items'["kombinierte Terme works"]
-    # Assuming 'all_items' is a list of dictionaries containing the key 'kombinierte Terme works'
-    # existing_terms = set()
-    # for item in all_items:
-    #    if 'kombinierte Terme works' in item:
-    #        existing_terms.update(item['kombinierte Terme works'].keys())
-
-    # Filter out the terms already present in 'all_items'["kombinierte Terme works"] from term_lists
-    # filtered_term_lists = []
-    # for terms in term_lists:
-    #    filtered_terms = {term: count for term, count in terms.items() if term not in existing_terms}
-    #    filtered_term_lists.append(filtered_terms)
+def count_terms_works(all_items, term_lists, document_frequency_list):
 
     # Calculate number of documents (filtered term lists)
-    num_documents = len(all_publications_unique)
+    num_documents = len(all_items)
 
     # Initialize term frequency and document frequency dictionaries
     term_frequency = {}
@@ -256,15 +240,10 @@ def count_terms_works(term_lists, document_frequency_list):
             else:
                 term_frequency[term] += count
 
-            #if term not in document_frequency:
-            #    document_frequency[term] = 0
-            #else:
-            #    document_frequency[term] += 1
-
     # Calculate and store TF-IDF values
     tf_idf = {}
     for term, tf in term_frequency.items():
-        df = document_frequency_list.get[term, 1]
+        df = document_frequency_list.get(term, 1)
         idf = math.log(num_documents / (1 + df))
         tf_idf[term] = tf * idf
 
@@ -290,7 +269,7 @@ def save_to_json(filename, data):
         json.dump(data, f)
 
 
-def enrichment_publications_referenced(all_items, referenced_works):
+def enrichment_publications_referenced(all_items, referenced_works, document_frequency_list):
     """
     Enrich the publications by integrating 'kombinierte Terme' from referenced works.
 
@@ -316,12 +295,12 @@ def enrichment_publications_referenced(all_items, referenced_works):
                         # Add the 'kombinierte Terme' from the referenced work
                         combined_terms_referenced.append(referenced_works_dict[item_ref])
             # Aggregate terms and store in the item
-            item['kombinierte Terme referenced'] = count_terms_works(combined_terms_referenced)
+            item['kombinierte Terme referenced'] = count_terms_works(combined_terms_referenced, document_frequency_list)
 
     save_to_json('publications.json', all_items)
 
 
-def enrichment_publications_referencing(all_items, referencing_ids):
+def enrichment_publications_referencing(all_items, referencing_ids, document_frequency_list):
     """
     Enrich the publications by integrating 'kombinierte Terme' from referenced works.
 
@@ -347,7 +326,7 @@ def enrichment_publications_referencing(all_items, referencing_ids):
                         # Add the 'kombinierte Terme' from the referenced work
                         combined_terms_referencing.append(referencing_works_dict[item_ref])
             # Aggregate terms and store in the item
-            item['kombinierte Terme referencing'] = count_terms_works(combined_terms_referencing)
+            item['kombinierte Terme referencing'] = count_terms_works(combined_terms_referencing, document_frequency_list)
 
     save_to_json('publications.json', all_items)
 
@@ -373,12 +352,11 @@ def enrichment_publications(all_items, referencing_ids, reference, document_freq
         if reference in item:
             combined_terms_referencing = []
             for item_ref in item[reference]:
-                if item_ref in referencing_works_dict:
-                    if item_ref not in combined_terms_works_dict:
+                if item_ref in referencing_works_dict and item_ref not in combined_terms_works_dict:
                         # Add the 'kombinierte Terme' from the referenced work
                         combined_terms_referencing.append(referencing_works_dict[item_ref])
             # Aggregate terms and store in the item
-            item['kombinierte Terme ' + reference] = count_terms_works(combined_terms_referencing, document_frequency_list)
+            item['kombinierte Terme ' + reference] = count_terms_works(all_items, combined_terms_referencing, document_frequency_list)
 
     save_to_json('publications.json', all_items)
 
@@ -417,6 +395,8 @@ get_referencing_works(referencing_publications_list, referencing_publications_un
 term_normalisation(referenced_publications_unique, "referenced_publications_unique.json")
 term_normalisation(referencing_publications_unique, "referencing_publications_unique.json")
 term_normalisation(all_publications_unique, "publications.json")
-document_frequency(all_publications_unique, document_frequency_list)
+document_frequency_list = document_frequency(all_publications_unique, document_frequency_list)
+#enrichment_publications_referenced(all_publications_unique, referenced_publications_unique, document_frequency_list)
+#enrichment_publications_referencing(all_publications_unique, referencing_publications_unique, document_frequency_list)
 enrichment_publications(all_publications_unique, referencing_publications_unique, 'referencing works', document_frequency_list)
 enrichment_publications(all_publications_unique, referenced_publications_unique, 'referenced_works', document_frequency_list)
