@@ -195,6 +195,10 @@ def normalize_text(text):
 
 
 def count_terms(text):
+    """
+    :param text: The input string in which terms need to be counted.
+    :return: A dictionary with each unique term in the input string as keys and their respective counts as values.
+    """
     # Text normalisieren
     normalized_text = normalize_text(text)
     # Texte in Wörter aufteilen
@@ -213,6 +217,13 @@ def count_terms(text):
     return term_count
 
 def document_frequency(all_items, document_frequency_list):
+    """
+    Hilfunktion zur Ermittlung der document frequency aller Terme in "kombinierte Terme Titel und Abstract"
+    für die übergebene Liste an Publikationen
+    :param all_items: Übergebene Liste mit Publikationen
+    :param document_frequency_list:
+    :return: document_frequency_list:
+    """
     for item in all_items:
         for term in item['kombinierte Terme Titel und Abstract']:
             if term not in document_frequency_list:
@@ -225,7 +236,13 @@ def document_frequency(all_items, document_frequency_list):
     return document_frequency_list
 
 def count_terms_works(all_items, term_lists, document_frequency_list):
+    """
 
+    :param all_items:
+    :param term_lists:
+    :param document_frequency_list:
+    :return: sorted_tf_idf:
+    """
     # Calculate number of documents (filtered term lists)
     num_documents = len(all_items)
 
@@ -254,6 +271,9 @@ def count_terms_works(all_items, term_lists, document_frequency_list):
 
 
 def term_normalisation(list_publications, filename):
+    """Hilfsfunktion zur Normalisierung und Zusammenführung aller Terme in Titel und Abstract jeder Publikation.
+        Mit Hilfe der Hilfsfunktion count_terms werden die normalisierten Terme und Dubletten entfernt.
+    """
     for publication in list_publications:
         title = publication.get('title', "")
         abstract = publication.get('abstract', "")
@@ -261,7 +281,6 @@ def term_normalisation(list_publications, filename):
         combined_text = f"{title} {abstract}"
         publication["kombinierte Terme Titel und Abstract"] = count_terms(combined_text)
     save_to_json(filename, list_publications)
-
 
 def save_to_json(filename, data):
     """Hilfsfunktion zum Speichern von Daten in eine JSON-Datei"""
@@ -333,30 +352,28 @@ def enrichment_publications_referencing(all_items, referencing_ids, document_fre
 
 def enrichment_publications(all_items, referencing_ids, reference, document_frequency_list):
     """
-    Enrich the publications by integrating 'kombinierte Terme' from referenced works.
-
-    Parameters:
-    all_items (list): A list of all publications.
-    referenced_works (list): A list of dictionaries where each dictionary contains 'id' and 'kombinierte Terme' of a referenced work.
-
-    Returns:
-    list: A list of enriched publications with added 'kombinierte Terme referenced' information.
+    Jede Ausgangspublikation in all_items wird ergänzt um Terme aus den referenzierten bzw. referenzierenden 
+    Publikationen der jeweiligen Ausgangspublikation. Dabei werden nur Terme übernommen, die noch nicht in der Ausgangspublikation
+    enthalten sind.
     """
-
     # Convert referenced_works list to a dictionary for quick lookup
     referencing_works_dict = {work['id']: work['kombinierte Terme Titel und Abstract'] for work in referencing_ids}
     combined_terms_works_dict = {work['id']: work['kombinierte Terme Titel und Abstract'] for work in all_items}
+
 
     # Enrich each item in all_items
     for item in all_items:
         if reference in item:
             combined_terms_referencing = []
-            for item_ref in item[reference]:
-                if item_ref in referencing_works_dict and item_ref not in combined_terms_works_dict:
+            for id_ref in item[reference]:
+                #der folgende Abschnitt ist fehlerhaft. Das folgende wird für jede ID der referenzierten/referenzierenden Publikationen gemacht:
+                # Ziel: Für jede ID sollen die Terme in referencing_works_dict abgerufen werden und mit ihrem Counter einzeln zu combined_terms_referencing hinzugefügt werden.
+                if id_ref in referencing_works_dict:
                         # Add the 'kombinierte Terme' from the referenced work
-                        combined_terms_referencing.append(referencing_works_dict[item_ref])
+                        combined_terms_referencing.append(referencing_works_dict[id_ref])
             # Aggregate terms and store in the item
-            item['kombinierte Terme ' + reference] = count_terms_works(all_items, combined_terms_referencing, document_frequency_list)
+            #item['kombinierte Terme ' + reference] = count_terms_works(all_items, combined_terms_referencing, document_frequency_list)
+            item['kombinierte Terme ' + reference] = combined_terms_referencing
 
     save_to_json('publications.json', all_items)
 
