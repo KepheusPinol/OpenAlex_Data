@@ -235,40 +235,16 @@ def document_frequency(all_items, document_frequency_list):
 
     return document_frequency_list
 
-def count_terms_works(all_items, term_lists, document_frequency_list):
-    """
+def assign_tfidf(term_lists, document_frequency_list, num_documents):
 
-    :param all_items:
-    :param term_lists:
-    :param document_frequency_list:
-    :return: sorted_tf_idf:
-    """
-    # Calculate number of documents (filtered term lists)
-    num_documents = len(all_items)
+    tfidfs = {
+        term:freq*math.log(num_documents / document_frequency_list[term])
+            for term, freq in term_lists.items()
+    }
 
-    # Initialize term frequency and document frequency dictionaries
-    term_frequency = {}
+    sorted_tf_idf = sorted(tfidfs.items(), key=lambda item: item[1], reverse=True)
 
-    # Calculate term frequency and document frequency
-    for terms in term_lists:
-        for term, count in terms.items():
-            if term not in term_frequency:
-                term_frequency[term] = count
-            else:
-                term_frequency[term] += count
-
-    # Calculate and store TF-IDF values
-    tf_idf = {}
-    for term, tf in term_frequency.items():
-        df = document_frequency_list.get(term, 1)
-        idf = math.log(num_documents / (1 + df))
-        tf_idf[term] = tf * idf
-
-    # Sort the terms by TF-IDF values in descending order
-    sorted_tf_idf = sorted(tf_idf.items(), key=lambda item: item[1], reverse=True)
-
-    return sorted_tf_idf[:10]
-
+    return {k:v for (k,v) in sorted_tf_idf[:10]}
 
 def term_normalisation(list_publications, filename):
     """Hilfsfunktion zur Normalisierung und Zusammenführung aller Terme in Titel und Abstract jeder Publikation.
@@ -287,70 +263,21 @@ def save_to_json(filename, data):
     with open(Path(filename), "w") as f:
         json.dump(data, f)
 
+def combine_dictionaries(dict1, dict2):
+    combined_dict = dict1.copy()  # Start with a copy of the first dictionary
 
-def enrichment_publications_referenced(all_items, referenced_works, document_frequency_list):
-    """
-    Enrich the publications by integrating 'kombinierte Terme' from referenced works.
+    for key, value in dict2.items():
+        if key in combined_dict:
+            combined_dict[key] += value  # Sum the counts for common keys
+        else:
+            combined_dict[key] = value  # Add unique keys from the second dictionary
 
-    Parameters:
-    all_items (list): A list of all publications.
-    referenced_works (list): A list of dictionaries where each dictionary contains 'id' and 'kombinierte Terme' of a referenced work.
+    return combined_dict
 
-    Returns:
-    list: A list of enriched publications with added 'kombinierte Terme referenced' information.
-    """
+def exclude_dict(dict1,dict2):
+    return {key:value for key, value in dict1.items() if key not in dict2}
 
-    # Convert referenced_works list to a dictionary for quick lookup
-    referenced_works_dict = {work['id']: work['kombinierte Terme Titel und Abstract'] for work in referenced_works}
-    combined_terms_works_dict = {work['id']: work['kombinierte Terme Titel und Abstract'] for work in all_items}
-
-    # Enrich each item in all_items
-    for item in all_items:
-        if 'referenced_works' in item:
-            combined_terms_referenced = []
-            for item_ref in item['referenced_works']:
-                if item_ref in referenced_works_dict:
-                    if item_ref not in combined_terms_works_dict:
-                        # Add the 'kombinierte Terme' from the referenced work
-                        combined_terms_referenced.append(referenced_works_dict[item_ref])
-            # Aggregate terms and store in the item
-            item['kombinierte Terme referenced'] = count_terms_works(combined_terms_referenced, document_frequency_list)
-
-    save_to_json('publications.json', all_items)
-
-
-def enrichment_publications_referencing(all_items, referencing_ids, document_frequency_list):
-    """
-    Enrich the publications by integrating 'kombinierte Terme' from referenced works.
-
-    Parameters:
-    all_items (list): A list of all publications.
-    referenced_works (list): A list of dictionaries where each dictionary contains 'id' and 'kombinierte Terme' of a referenced work.
-
-    Returns:
-    list: A list of enriched publications with added 'kombinierte Terme referenced' information.
-    """
-
-    # Convert referenced_works list to a dictionary for quick lookup
-    referencing_works_dict = {work['id']: work['kombinierte Terme Titel und Abstract'] for work in referencing_ids}
-    combined_terms_works_dict = {work['id']: work['kombinierte Terme Titel und Abstract'] for work in all_items}
-
-    # Enrich each item in all_items
-    for item in all_items:
-        if 'referencing works' in item:
-            combined_terms_referencing = []
-            for item_ref in item['referencing works']:
-                if item_ref in referencing_works_dict:
-                    if item_ref not in combined_terms_works_dict:
-                        # Add the 'kombinierte Terme' from the referenced work
-                        combined_terms_referencing.append(referencing_works_dict[item_ref])
-            # Aggregate terms and store in the item
-            item['kombinierte Terme referencing'] = count_terms_works(combined_terms_referencing, document_frequency_list)
-
-    save_to_json('publications.json', all_items)
-
-
-def enrichment_publications(all_items, referencing_ids, reference, document_frequency_list):
+def enrichment_publications(all_items, referencing_ids, reference, document_frequency_list, num_documents):
     """
     Jede Ausgangspublikation in all_items wird ergänzt um Terme aus den referenzierten bzw. referenzierenden 
     Publikationen der jeweiligen Ausgangspublikation. Dabei werden nur Terme übernommen, die noch nicht in der Ausgangspublikation
@@ -358,32 +285,41 @@ def enrichment_publications(all_items, referencing_ids, reference, document_freq
     """
     # Convert referenced_works list to a dictionary for quick lookup
     referencing_works_dict = {work['id']: work['kombinierte Terme Titel und Abstract'] for work in referencing_ids}
-    combined_terms_works_dict = {work['id']: work['kombinierte Terme Titel und Abstract'] for work in all_items}
-
 
     # Enrich each item in all_items
     for item in all_items:
         if reference in item:
-            combined_terms_referencing = []
+            combined_terms_referencing = {}
             for id_ref in item[reference]:
-                #der folgende Abschnitt ist fehlerhaft. Das folgende wird für jede ID der referenzierten/referenzierenden Publikationen gemacht:
-                # Ziel: Für jede ID sollen die Terme in referencing_works_dict abgerufen werden und mit ihrem Counter einzeln zu combined_terms_referencing hinzugefügt werden.
                 if id_ref in referencing_works_dict:
-                        # Add the 'kombinierte Terme' from the referenced work
-                        combined_terms_referencing.append(referencing_works_dict[id_ref])
+                # Add the 'kombinierte Terme' from the referenced work
+                    combined_terms_referencing= combine_dictionaries(combined_terms_referencing, referencing_works_dict[id_ref])
+                #combined_terms_referencing.append(referencing_works_dict[id_ref])
             # Aggregate terms and store in the item
-            #item['kombinierte Terme ' + reference] = count_terms_works(all_items, combined_terms_referencing, document_frequency_list)
-            item['kombinierte Terme ' + reference] = combined_terms_referencing
+            combined_terms_item_dict = item['kombinierte Terme Titel und Abstract']
+            combined_terms_referencing_excl = exclude_dict(combined_terms_referencing, combined_terms_item_dict)
+            #item['kombinierte Terme ' + reference] = assign_tfidf(combined_terms_referencing_excl,document_frequency_list,num_documents)
+            item['kombinierte Terme ' + reference] = combined_terms_referencing_excl
+
 
     save_to_json('publications.json', all_items)
 
+def collect_all_publications(publications_list):
+    publications_unique = []
+    publications_unique_id = []
+    for publications in publications_list:
+        for item in publications:
+            if item['id'] not in publications_unique_id:
+                publications_unique.append(item)
+                publications_unique_id.append(item['id'])
+    return publications_unique
+
+
 
 # Hauptprogrammfluss
-# pager = Works().filter(primary_topic={"id": "T13616"}).select(["id", "title", "authorships", "referenced_works", "abstract_inverted_index","referenced_works_count", "cited_by_count"])
+pager = Works().filter(primary_topic={"id": "T13616"}).select(["id", "title", "authorships", "referenced_works", "abstract_inverted_index","referenced_works_count", "cited_by_count"])
 
-pager = Works().filter(ids={"openalex": "W2053522485"}).select(
-    ["id", "title", "authorships", "referenced_works", "abstract_inverted_index", "cited_by_count",
-     "referenced_works_count", ])
+#pager = Works().filter(ids={"openalex": "W2053522485"}).select(["id", "title", "authorships", "referenced_works", "abstract_inverted_index", "cited_by_count","referenced_works_count", ])
 
 # referencing_publications_unique enthält einmalig die Metadaten aller zitierenden Publikationen der Ausgangspublikationen
 referencing_publications_unique = []
@@ -412,8 +348,10 @@ get_referencing_works(referencing_publications_list, referencing_publications_un
 term_normalisation(referenced_publications_unique, "referenced_publications_unique.json")
 term_normalisation(referencing_publications_unique, "referencing_publications_unique.json")
 term_normalisation(all_publications_unique, "publications.json")
-document_frequency_list = document_frequency(all_publications_unique, document_frequency_list)
-#enrichment_publications_referenced(all_publications_unique, referenced_publications_unique, document_frequency_list)
-#enrichment_publications_referencing(all_publications_unique, referencing_publications_unique, document_frequency_list)
-enrichment_publications(all_publications_unique, referencing_publications_unique, 'referencing works', document_frequency_list)
-enrichment_publications(all_publications_unique, referenced_publications_unique, 'referenced_works', document_frequency_list)
+
+# Unify all publications
+combined_publications_unique = collect_all_publications([all_publications_unique,referenced_publications_unique,referencing_publications_unique])
+document_frequency_list = document_frequency(combined_publications_unique, document_frequency_list)
+num_documents = len(combined_publications_unique)
+enrichment_publications(all_publications_unique, referencing_publications_unique, 'referencing works', document_frequency_list,num_documents)
+enrichment_publications(all_publications_unique, referenced_publications_unique, 'referenced_works', document_frequency_list,num_documents)
