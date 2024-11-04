@@ -22,13 +22,6 @@ DetectorFactory.seed = 0
 EMAIL = "chr.brenscheidt@gmail.com"
 RETRY_HTTP_CODES = [429, 500, 503]
 
-#pyalex.config.email = EMAIL
-
-#config = pyalex.config
-#config.max_retries = 0
-#config.retry_backoff_factor = 0.1
-#config.retry_http_codes = RETRY_HTTP_CODES
-
 def setup_pyalex():
     """ Setup pyalex configuration. """
     pyalex.config.email = EMAIL
@@ -184,6 +177,9 @@ def normalize_text(text):
     # Nicht-Wörter entfernen
     text = re.sub(r'[^\w\s]', '', text)
 
+    # Zahlen und Terme mit weniger als 3 Zeichen entfernen
+    text = ' '.join([word for word in text.split() if len(word) >= 3 and not word.isdigit()])
+
     # Wörter splitten, Stopwörter entfernen und stämmen
     words = text.split()
     filtered_words = [stemmer.stem(word) for word in words if word not in stop_words]
@@ -248,7 +244,7 @@ def assign_tfidf(term_lists, document_frequency_list, num_documents):
 
 def term_normalisation(list_publications, filename):
     """Hilfsfunktion zur Normalisierung und Zusammenführung aller Terme in Titel und Abstract jeder Publikation.
-        Mit Hilfe der Hilfsfunktion count_terms werden die normalisierten Terme und Dubletten entfernt.
+        Mit Hilfe der Hilfsfunktion count_terms werden die Terme normalisiert, Dubletten entfernt und die Häufigkeit von Termen gezählt
     """
     for publication in list_publications:
         title = publication.get('title', "")
@@ -298,8 +294,8 @@ def enrichment_publications(all_items, referencing_ids, reference, document_freq
             # Aggregate terms and store in the item
             combined_terms_item_dict = item['kombinierte Terme Titel und Abstract']
             combined_terms_referencing_excl = exclude_dict(combined_terms_referencing, combined_terms_item_dict)
-            #item['kombinierte Terme ' + reference] = assign_tfidf(combined_terms_referencing_excl,document_frequency_list,num_documents)
-            item['kombinierte Terme ' + reference] = combined_terms_referencing_excl
+            item['kombinierte Terme ' + reference] = assign_tfidf(combined_terms_referencing_excl,document_frequency_list,num_documents)
+            #item['kombinierte Terme ' + reference] = combined_terms_referencing_excl
 
 
     save_to_json('publications.json', all_items)
@@ -325,7 +321,7 @@ pager = Works().filter(primary_topic={"id": "T13616"}).select(["id", "title", "a
 referencing_publications_unique = []
 
 # all_publications_unique enthält einmalig die Metadaten aller Ausgangspublikationen
-all_publications_unique = []
+base_publications_unique = []
 
 # referenced_publications_unique enthält einmalig die Metadaten aller zitierten Publikationen der Ausgangspublikationen
 referenced_publications_unique = []
@@ -342,16 +338,23 @@ referencing_publications_list = []
 document_frequency_list = {}
 
 # Beispiel Aufruf der Funktion
-get_publications(pager, all_publications_unique, referenced_publications_list)
-get_referenced_works(referenced_publications_list, referenced_publications_ids_complete, referenced_publications_unique, all_publications_unique)
-get_referencing_works(referencing_publications_list, referencing_publications_unique, all_publications_unique)
+#Abruf der Metadaten Ausgangspublikation, zitierte und zitierende Publikationen
+get_publications(pager, base_publications_unique, referenced_publications_list)
+get_referenced_works(referenced_publications_list, referenced_publications_ids_complete, referenced_publications_unique, base_publications_unique)
+get_referencing_works(referencing_publications_list, referencing_publications_unique, base_publications_unique)
+
+#Zusammenführung der Terme von Titel und Abstrakt jeder Publikation in dem neuen Feld 'kombinierte Terme Titel und Abstract'.
+#Vorkommenshäufigkeit der Terme, Entfernen von Mehrfacheinträgen von Termen, lowercasing, Reduktion auf den Wortstamm, entfernen von Zahlen und Termen bestehend aus weniger als 3 Zeichen
+
 term_normalisation(referenced_publications_unique, "referenced_publications_unique.json")
 term_normalisation(referencing_publications_unique, "referencing_publications_unique.json")
-term_normalisation(all_publications_unique, "publications.json")
+term_normalisation(base_publications_unique, "publications.json")
 
-# Unify all publications
-combined_publications_unique = collect_all_publications([all_publications_unique,referenced_publications_unique,referencing_publications_unique])
+# Zusammenführung aller Publikationen (Ausgangspublikationen, zitierte und zitierende Publikationen) zur Berechnung der Document Frequency der einzelnen Terme
+combined_publications_unique = collect_all_publications([base_publications_unique, referenced_publications_unique, referencing_publications_unique])
 document_frequency_list = document_frequency(combined_publications_unique, document_frequency_list)
 num_documents = len(combined_publications_unique)
-enrichment_publications(all_publications_unique, referencing_publications_unique, 'referencing works', document_frequency_list,num_documents)
-enrichment_publications(all_publications_unique, referenced_publications_unique, 'referenced_works', document_frequency_list,num_documents)
+
+#Anreicherung der Ausgangspublikationen mit den jeweils 10 Termen mit den höchsten tf-idf Werten
+enrichment_publications(base_publications_unique, referencing_publications_unique, 'referencing works', document_frequency_list, num_documents)
+enrichment_publications(base_publications_unique, referenced_publications_unique, 'referenced_works', document_frequency_list, num_documents)
