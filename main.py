@@ -247,6 +247,8 @@ def term_normalisation(list_publications, filename):
     for publication in list_publications:
         title = publication.get('title', "")
         abstract = publication.get('abstract', "")
+        if abstract is None:
+            abstract = ""
 
         combined_text = f"{title} {abstract}"
         # Text normalisieren
