@@ -5,6 +5,7 @@ from pyalex import Works, config
 import json
 import re
 import math
+import langcodes
 from itertools import chain
 from pathlib import Path
 from nltk.corpus import stopwords
@@ -46,7 +47,7 @@ def get_base_publications(pager, base_publications_unique, referenced_publicatio
 
             base_publications_unique.append({
                 'id': publication['id'], 'title': publication['title'], 'authorships': publication['authorships'],
-                'abstract': publication["abstract"], 'cited_by_count': publication['cited_by_count'],
+                'abstract': publication["abstract"] or "", 'cited_by_count': publication['cited_by_count'],
                 'referenced_works': referenced_works_id, 'referenced_works_count': publication['referenced_works_count']
             })
 
@@ -163,13 +164,14 @@ def normalize_text(text):
 
     try:
         # Erkennung der Sprache des Textes
-        language = detect(text)
+        language_code = detect(text)
+        language_name = langcodes.get(language_code).language_name()
     except LangDetectException:
-        language = 'english'  # Standardmäßig Englisch verwenden
+        language_name = 'english'  # Standardmäßig Englisch verwenden
 
     # Holen der Stopwords für die erkannte Sprache
-    stop_words = get_stopwords_for_language(language)
-    stemmer = get_stemmer_for_language(language)
+    stop_words = get_stopwords_for_language(language_name)
+    stemmer = get_stemmer_for_language(language_name)
 
     # Text in Kleinbuchstaben umwandeln
     text = text.lower()
@@ -180,26 +182,21 @@ def normalize_text(text):
     # Zahlen und Terme mit weniger als 3 Zeichen entfernen
     text = ' '.join([word for word in text.split() if len(word) >= 3 and not word.isdigit()])
 
-    # Wörter splitten, Stopwörter entfernen und stämmen
+    # Wörter splitten, Stopwörter entfernen und stemmen
     words = text.split()
     filtered_words = [stemmer.stem(word) for word in words if word not in stop_words]
 
     # Gefilterte Wörter zu einem String zusammenfügen
-    normalized_text = ' '.join(filtered_words)
+    #normalized_text = ' '.join(filtered_words)
 
-    return normalized_text
+    return filtered_words
 
 
-def count_terms(text):
+def count_terms(terms):
     """
     :param text: The input string in which terms need to be counted.
     :return: A dictionary with each unique term in the input string as keys and their respective counts as values.
     """
-    # Text normalisieren
-    normalized_text = normalize_text(text)
-    # Texte in Wörter aufteilen
-    terms = re.findall(r'\b\w+\b', normalized_text)
-
     # Dictionary zur Speicherung der Zählwerte
     term_count = {}
 
@@ -252,7 +249,12 @@ def term_normalisation(list_publications, filename):
         abstract = publication.get('abstract', "")
 
         combined_text = f"{title} {abstract}"
-        publication["kombinierte Terme Titel und Abstract"] = count_terms(combined_text)
+        # Text normalisieren
+        normalized_text = normalize_text(combined_text)
+        # Texte in Wörter aufteilen
+        #terms = re.findall(r'\b\w+\b', normalized_text)
+
+        publication["kombinierte Terme Titel und Abstract"] = count_terms(normalized_text)
     save_to_json(filename, list_publications)
 
 def save_to_json(filename, data):
@@ -274,7 +276,7 @@ def combine_dictionaries(dict1, dict2):
 def exclude_dict(dict1,dict2):
     return {key:value for key, value in dict1.items() if key not in dict2}
 
-def enrichment_publications(base_publications_unique, reference_publications_unique, reference, document_frequency_list, num_documents):
+def enrichment_publications(base_publications_unique, reference_publications_unique, reference, document_frequency_dict, num_documents):
     """
     Jede Ausgangspublikation in all_items wird ergänzt um Terme aus den referenzierten bzw. referenzierenden 
     Publikationen der jeweiligen Ausgangspublikation. Dabei werden nur Terme übernommen, die noch nicht in der Ausgangspublikation
@@ -295,7 +297,7 @@ def enrichment_publications(base_publications_unique, reference_publications_uni
             # Aggregate terms and store in the item
             combined_terms_item_dict = item['kombinierte Terme Titel und Abstract']
             combined_terms_referencing_excl = exclude_dict(combined_terms_referencing, combined_terms_item_dict)
-            item['kombinierte Terme ' + reference] = assign_tfidf(combined_terms_referencing_excl,document_frequency_list,num_documents)
+            item['kombinierte Terme ' + reference] = assign_tfidf(combined_terms_referencing_excl, document_frequency_dict, num_documents)
             #item['kombinierte Terme ' + reference] = combined_terms_referencing_excl
 
 
@@ -333,10 +335,10 @@ referencing_publications_complete = []
 # referenecd_publications_ids_complete enthält die IDs aller zitierten Publikationen in der Häufigkeit mit der sie von den Ausgangspublikationen zitiert werden
 referenced_publications_ids_complete = []
 
-
+# referenced_publications_list enthält alle IDs der zitierten Publikationen der Ausgangspublikationen
 referenced_publications_list = []
 referencing_publications_list = []
-document_frequency_list = {}
+document_frequency_dict = {}
 
 # Beispiel Aufruf der Funktion
 #Abruf der Metadaten Ausgangspublikation, zitierte und zitierende Publikationen
@@ -353,9 +355,9 @@ term_normalisation(base_publications_unique, "publications.json")
 
 # Zusammenführung aller Publikationen (Ausgangspublikationen, zitierte und zitierende Publikationen) zur Berechnung der Document Frequency der einzelnen Terme
 combined_publications_unique = collect_all_publications([base_publications_unique, referenced_publications_unique, referencing_publications_unique])
-document_frequency_list = document_frequency(combined_publications_unique, document_frequency_list)
+document_frequency_dict = document_frequency(combined_publications_unique, document_frequency_dict)
 num_documents = len(combined_publications_unique)
 
 #Anreicherung der Ausgangspublikationen mit den jeweils 10 Termen mit den höchsten tf-idf Werten
-enrichment_publications(base_publications_unique, referencing_publications_unique, 'referencing works', document_frequency_list, num_documents)
-enrichment_publications(base_publications_unique, referenced_publications_unique, 'referenced_works', document_frequency_list, num_documents)
+enrichment_publications(base_publications_unique, referencing_publications_unique, 'referencing works', document_frequency_dict, num_documents)
+enrichment_publications(base_publications_unique, referenced_publications_unique, 'referenced_works', document_frequency_dict, num_documents)
