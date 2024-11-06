@@ -1,4 +1,7 @@
 pandas~=2.2.2
 matplotlib~=3.9.2
-pyalex
+pyalex~=0.15.1
 
+
+nltk~=3.9.1
+langdetect~=1.0.9

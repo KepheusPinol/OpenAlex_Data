@@ -30,70 +30,70 @@ def setup_pyalex():
     config.retry_http_codes = RETRY_HTTP_CODES
 
 
-def get_publications(pager, all_publications_unique, referenced_works_list):
+def get_base_publications(pager, base_publications_unique, referenced_publications_list):
     for page in chain(pager.paginate(per_page=200, n_max=None)):
-        for item in page:
-            item['id'] = item['id'].replace("https://openalex.org/", "")
-            author_display_names = [authorship["author"]["display_name"] for authorship in item["authorships"]]
-            item['authorships'] = author_display_names
-            item['abstract'] = item["abstract"] or ""
+        for publication in page:
+            publication['id'] = publication['id'].replace("https://openalex.org/", "")
+            author_display_names = [authorship["author"]["display_name"] for authorship in publication["authorships"]]
+            publication['authorships'] = author_display_names
+            publication['abstract'] = publication["abstract"] or ""
 
             referenced_works_id = [
                 ref_id.replace("https://openalex.org/", "")
-                for ref_id in item.get('referenced_works', [])
+                for ref_id in publication.get('referenced_works', [])
             ]
-            referenced_works_list.extend({'id': ref_id} for ref_id in referenced_works_id)
+            referenced_publications_list.extend({'id': ref_id} for ref_id in referenced_works_id)
 
-            all_publications_unique.append({
-                'id': item['id'], 'title': item['title'], 'authorships': item['authorships'],
-                'abstract': item["abstract"], 'cited_by_count': item['cited_by_count'],
-                'referenced_works': referenced_works_id, 'referenced_works_count': item['referenced_works_count']
+            base_publications_unique.append({
+                'id': publication['id'], 'title': publication['title'], 'authorships': publication['authorships'],
+                'abstract': publication["abstract"], 'cited_by_count': publication['cited_by_count'],
+                'referenced_works': referenced_works_id, 'referenced_works_count': publication['referenced_works_count']
             })
 
-    save_to_json("publications.json", all_publications_unique)
-    print(f"Anzahl der IDs: {len(all_publications_unique)}")
-    print(f"Gesamtanzahl der Referenced Works: {len(referenced_works_list)}")
+    #save_to_json("publications.json", base_publications_unique)
+    print(f"Anzahl der Ausgangspublikationen: {len(base_publications_unique)}")
+    print(f"Gesamtanzahl der Referenced Works: {len(referenced_publications_list)}")
 
 
-def get_referenced_works(referenced_works_list, referenced_ids, referenced_works, all_items):
-    for ref_id in referenced_works_list:
-        for ref in referenced_ids:
-            if ref_id['id'] == ref['id']:
-                ref['Anzahl'] += 1
+def get_referenced_works(referenced_publications_list, referenced_publications_ids_complete, referenced_publications_unique, base_publications_unique):
+    for publication in referenced_publications_list:
+        for referenced_pub in referenced_publications_ids_complete:
+            if publication['id'] == referenced_pub['id']:
+                referenced_pub['Anzahl'] += 1
                 break
         else:
-            referenced_ids.append({'id': ref_id['id'], 'Anzahl': 1})
+            referenced_publications_ids_complete.append({'id': publication['id'], 'Anzahl': 1})
 
-    referenced_ids.sort(key=lambda x: x.get('Anzahl', 0), reverse=True)
-    save_to_json("referenced_ids.json", referenced_ids)
+    referenced_publications_ids_complete.sort(key=lambda x: x.get('Anzahl', 0), reverse=True)
+    #save_to_json("referenced_ids.json", referenced_publications_ids_complete)
 
-    print(f"Unique Referenced Works Count: {len(referenced_ids)}")
-    summe_anzahl = sum(item.get('Anzahl', 0) for item in referenced_ids)
+    print(f"Unique Referenced Works Count: {len(referenced_publications_ids_complete)}")
+    summe_anzahl = sum(item.get('Anzahl', 0) for item in referenced_publications_ids_complete)
     print("Die Summe der 'Anzahl' ist:", summe_anzahl)
 
-    for item in referenced_ids:
-        Pager_referenced = Works().filter(ids={"openalex": item['id']}).select(
+    for publication in referenced_publications_ids_complete:
+        pager_referenced = Works().filter(ids={"openalex": publication['id']}).select(
             ["id", "title", "authorships", "referenced_works", "referenced_works_count", "abstract_inverted_index"])
-        for page in chain(Pager_referenced.paginate(per_page=200, n_max=None)):
-            for item_ref in page:
-                item_ref['id'] = item_ref['id'].replace("https://openalex.org/", "")
-                author_display_names = [authorship["author"]["display_name"] for authorship in item_ref["authorships"]]
-                item_ref['authorships'] = author_display_names
-                item_ref['abstract'] = item_ref["abstract"] or ""
-                referenced_works.append({
-                    'id': item_ref['id'], 'Anzahl': 1, 'title': item_ref['title'],
-                    'authorships': item_ref['authorships'], 'abstract': item_ref['abstract'],
-                    'referenced_works_count': item_ref['referenced_works_count']
+        for page in chain(pager_referenced.paginate(per_page=200, n_max=None)):
+            for publication_ref in page:
+                publication_ref['id'] = publication_ref['id'].replace("https://openalex.org/", "")
+                author_display_names = [authorship["author"]["display_name"] for authorship in publication_ref["authorships"]]
+                publication_ref['authorships'] = author_display_names
+                publication_ref['abstract'] = publication_ref["abstract"] or ""
+                referenced_publications_unique.append({
+                    'id': publication_ref['id'], 'Anzahl': 1, 'title': publication_ref['title'],
+                    'authorships': publication_ref['authorships'], 'abstract': publication_ref['abstract'],
+                    'referenced_works_count': publication_ref['referenced_works_count']
                 })
 
-    save_to_json("referenced_publications_unique.json", referenced_works)
+    save_to_json("referenced_publications_unique.json", referenced_publications_unique)
 
-    summe_referenced_work_Count = sum(item.get('referenced_works_count', 0) for item in all_items)
+    summe_referenced_work_Count = sum(item.get('referenced_works_count', 0) for item in base_publications_unique)
     print("Die Summe der 'referenced_works_count' ist:", summe_referenced_work_Count)
 
 
-def get_referencing_works(referencing_works_list, referencing_ids, all_items):
-    for item in all_items:
+def get_referencing_works(referencing_publications_list, referencing_publications_unique, base_publications_unique):
+    for item in base_publications_unique:
         Pager_referencing = Works().filter(cites=item['id']).select(
             ["id", "title", "authorships", "cited_by_count", "abstract_inverted_index"])
         referencing_works_id = []
@@ -103,33 +103,33 @@ def get_referencing_works(referencing_works_list, referencing_ids, all_items):
                 author_display_names = [authorship["author"]["display_name"] for authorship in item_ref["authorships"]]
                 item_ref['authorships'] = author_display_names
                 item_ref['abstract'] = item_ref["abstract"] or ""
-                referencing_works_list.append(item_ref)
+                referencing_publications_list.append(item_ref)
                 referencing_works_id.append(item_ref['id'])
         item['referencing works'] = referencing_works_id
 
-    save_to_json("referencing_publications.json", referencing_works_list)
-    save_to_json("publications.json", all_items)
+    #save_to_json("referencing_publications.json", referencing_publications_list)
+    #save_to_json("publications.json", base_publications_unique)
 
-    print(f"Anzahl der Referencing Works: {len(referencing_works_list)}")
+    print(f"Anzahl der Referencing Works: {len(referencing_publications_list)}")
 
-    for ref_id in referencing_works_list:
-        for ref in referencing_ids:
+    for ref_id in referencing_publications_list:
+        for ref in referencing_publications_unique:
             if ref_id['id'] == ref['id']:
                 ref['Anzahl'] += 1
                 break
         else:
-            referencing_ids.append({
+            referencing_publications_unique.append({
                 'id': ref_id['id'], 'Anzahl': 1, 'title': ref_id['title'],
                 'authorships': ref_id['authorships'], 'cited_by_count': ref_id['cited_by_count'],
                 'abstract': ref_id['abstract']
             })
 
-    referencing_ids.sort(key=lambda x: x.get('Anzahl', 0), reverse=True)
-    save_to_json("referencing_publications_unique.json", referencing_ids)
+    referencing_publications_unique.sort(key=lambda x: x.get('Anzahl', 0), reverse=True)
+    save_to_json("referencing_publications_unique.json", referencing_publications_unique)
 
-    print(f"Unique Referencing Works Count: {len(referencing_ids)}")
-    summe_anzahl = sum(item.get('Anzahl', 0) for item in referencing_ids)
-    summe_cited_by_count = sum(item.get('cited_by_count', 0) for item in all_items)
+    print(f"Unique Referencing Works Count: {len(referencing_publications_unique)}")
+    summe_anzahl = sum(item.get('Anzahl', 0) for item in referencing_publications_unique)
+    summe_cited_by_count = sum(item.get('cited_by_count', 0) for item in base_publications_unique)
 
     print("Die Summe der 'Anzahl' ist:", summe_anzahl)
     print("Die Summe der 'cited_by_count' ist:", summe_cited_by_count)
@@ -212,22 +212,23 @@ def count_terms(text):
 
     return term_count
 
-def document_frequency(all_items, document_frequency_list):
+def document_frequency(combined_publications_unique, document_frequency_list):
     """
     Hilfunktion zur Ermittlung der document frequency aller Terme in "kombinierte Terme Titel und Abstract"
     für die übergebene Liste an Publikationen
-    :param all_items: Übergebene Liste mit Publikationen
+    :param combined_publications_unique: Übergebene Liste mit Publikationen
     :param document_frequency_list:
     :return: document_frequency_list:
     """
-    for item in all_items:
+    for item in combined_publications_unique:
         for term in item['kombinierte Terme Titel und Abstract']:
             if term not in document_frequency_list:
                 document_frequency_list[term] = 1
             else:
                 document_frequency_list[term] += 1
 
-    save_to_json('document_frequency.json', document_frequency_list)
+    sorted_df = sorted(document_frequency_list.items(), key=lambda item: item[0])
+    save_to_json('document_frequency.json', sorted_df)
 
     return document_frequency_list
 
@@ -273,24 +274,24 @@ def combine_dictionaries(dict1, dict2):
 def exclude_dict(dict1,dict2):
     return {key:value for key, value in dict1.items() if key not in dict2}
 
-def enrichment_publications(all_items, referencing_ids, reference, document_frequency_list, num_documents):
+def enrichment_publications(base_publications_unique, reference_publications_unique, reference, document_frequency_list, num_documents):
     """
     Jede Ausgangspublikation in all_items wird ergänzt um Terme aus den referenzierten bzw. referenzierenden 
     Publikationen der jeweiligen Ausgangspublikation. Dabei werden nur Terme übernommen, die noch nicht in der Ausgangspublikation
     enthalten sind.
     """
     # Convert referenced_works list to a dictionary for quick lookup
-    referencing_works_dict = {work['id']: work['kombinierte Terme Titel und Abstract'] for work in referencing_ids}
+    reference_publications_dict = {publication['id']: publication['kombinierte Terme Titel und Abstract'] for publication in reference_publications_unique}
 
     # Enrich each item in all_items
-    for item in all_items:
+    for item in base_publications_unique:
         if reference in item:
             combined_terms_referencing = {}
             for id_ref in item[reference]:
-                if id_ref in referencing_works_dict:
-                # Add the 'kombinierte Terme' from the referenced work
-                    combined_terms_referencing= combine_dictionaries(combined_terms_referencing, referencing_works_dict[id_ref])
-                #combined_terms_referencing.append(referencing_works_dict[id_ref])
+                if id_ref in reference_publications_dict:
+                # Add the 'kombinierte Terme' from the referenced publication
+                    combined_terms_referencing= combine_dictionaries(combined_terms_referencing, reference_publications_dict[id_ref])
+                #combined_terms_referencing.append(reference_publications_dict[id_ref])
             # Aggregate terms and store in the item
             combined_terms_item_dict = item['kombinierte Terme Titel und Abstract']
             combined_terms_referencing_excl = exclude_dict(combined_terms_referencing, combined_terms_item_dict)
@@ -298,7 +299,7 @@ def enrichment_publications(all_items, referencing_ids, reference, document_freq
             #item['kombinierte Terme ' + reference] = combined_terms_referencing_excl
 
 
-    save_to_json('publications.json', all_items)
+    save_to_json('publications.json', base_publications_unique)
 
 def collect_all_publications(publications_list):
     publications_unique = []
@@ -339,7 +340,7 @@ document_frequency_list = {}
 
 # Beispiel Aufruf der Funktion
 #Abruf der Metadaten Ausgangspublikation, zitierte und zitierende Publikationen
-get_publications(pager, base_publications_unique, referenced_publications_list)
+get_base_publications(pager, base_publications_unique, referenced_publications_list)
 get_referenced_works(referenced_publications_list, referenced_publications_ids_complete, referenced_publications_unique, base_publications_unique)
 get_referencing_works(referencing_publications_list, referencing_publications_unique, base_publications_unique)
 
