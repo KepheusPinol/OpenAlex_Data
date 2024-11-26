@@ -48,7 +48,7 @@ def get_base_publications(pager, base_publications_unique, referenced_publicatio
             base_publications_unique.append({
                 'id': publication['id'], 'title': publication['title'], 'authorships': publication['authorships'],
                 'abstract': publication["abstract"] or "", 'cited_by_count': publication['cited_by_count'],
-                'referenced_works': referenced_works_id, 'referenced_works_count': publication['referenced_works_count']
+                'referenced_works': referenced_works_id, 'reference_works': referenced_works_id, 'referenced_works_count': publication['referenced_works_count']
             })
 
     #save_to_json("publications.json", base_publications_unique)
@@ -106,7 +106,8 @@ def get_referencing_works(referencing_publications_list, referencing_publication
                 item_ref['abstract'] = item_ref["abstract"] or ""
                 referencing_publications_list.append(item_ref)
                 referencing_works_id.append(item_ref['id'])
-        item['referencing works'] = referencing_works_id
+        item['referencing_works'] = referencing_works_id
+        item['reference_works'] = merge_and_deduplicate(item['referencing_works'], item['referenced_works'])
 
     #save_to_json("referencing_publications.json", referencing_publications_list)
     #save_to_json("publications.json", base_publications_unique)
@@ -192,13 +193,14 @@ def normalize_text(text):
     return filtered_words
 
 
-def count_terms(terms):
+def assign_tf(terms):
     """
     :param text: The input string in which terms need to be counted.
     :return: A dictionary with each unique term in the input string as keys and their respective counts as values.
     """
     # Dictionary zur Speicherung der Zählwerte
     term_count = {}
+    totel_number_terms = len(terms)
 
     for term in terms:
         # Initialisieren des Zählers, falls das Wort noch nicht im Dictionary ist
@@ -209,36 +211,49 @@ def count_terms(terms):
 
     return term_count
 
-def document_frequency(combined_publications_unique, document_frequency_list):
+def document_frequency(publications_unique):
     """
     Hilfunktion zur Ermittlung der document frequency aller Terme in "kombinierte Terme Titel und Abstract"
     für die übergebene Liste an Publikationen
-    :param combined_publications_unique: Übergebene Liste mit Publikationen
-    :param document_frequency_list:
+    :param publications_unique: Übergebene Liste mit Publikationen
+    :param document_frequency_dict:
     :return: document_frequency_list:
     """
-    for item in combined_publications_unique:
-        for term in item['kombinierte Terme Titel und Abstract']:
-            if term not in document_frequency_list:
-                document_frequency_list[term] = 1
-            else:
-                document_frequency_list[term] += 1
+    document_frequency_dict = {}
 
-    sorted_df = sorted(document_frequency_list.items(), key=lambda item: item[0])
+    for item in publications_unique:
+        for term in item:
+            if term not in document_frequency_dict:
+                document_frequency_dict[term] = 1
+            else:
+                document_frequency_dict[term] += 1
+
+    sorted_df = sorted(document_frequency_dict.items(), key=lambda item: item[0])
     save_to_json('document_frequency.json', sorted_df)
 
-    return document_frequency_list
+    return document_frequency_dict
 
-def assign_tfidf(term_lists, document_frequency_list, num_documents):
-
+def assign_tfidf(term_lists, document_frequency_dict, num_documents):
+# Es wird nur die reine Vorkommenshäufigkeit freq genutzt, Abwandlung in relative Vorkommenshäufigkeit noch offen
     tfidfs = {
-        term:freq*math.log(num_documents / document_frequency_list[term])
+        term:freq*math.log(num_documents / document_frequency_dict[term])
             for term, freq in term_lists.items()
     }
 
     sorted_tf_idf = sorted(tfidfs.items(), key=lambda item: item[1], reverse=True)
 
     return {k:v for (k,v) in sorted_tf_idf[:10]}
+
+def assign_df(term_lists, document_frequency_dict, document_frequency_overall_dict, num_documents):
+    dfs = {
+        term:document_frequency_dict[term]
+            for term, freq in term_lists.items()
+    }
+
+    sorted_df = sorted(dfs.items(), key=lambda item: item[1], reverse=True)
+
+    #return {k:v for (k,v) in sorted_df[:20]}
+    return [k for (k,v) in sorted_df[:20]]
 
 def term_normalisation(list_publications, filename):
     """Hilfsfunktion zur Normalisierung und Zusammenführung aller Terme in Titel und Abstract jeder Publikation.
@@ -253,10 +268,7 @@ def term_normalisation(list_publications, filename):
         combined_text = f"{title} {abstract}"
         # Text normalisieren
         normalized_text = normalize_text(combined_text)
-        # Texte in Wörter aufteilen
-        #terms = re.findall(r'\b\w+\b', normalized_text)
-
-        publication["kombinierte Terme Titel und Abstract"] = count_terms(normalized_text)
+        publication["kombinierte Terme Titel und Abstract"] = assign_tf(normalized_text)
     save_to_json(filename, list_publications)
 
 def save_to_json(filename, data):
@@ -278,7 +290,7 @@ def combine_dictionaries(dict1, dict2):
 def exclude_dict(dict1,dict2):
     return {key:value for key, value in dict1.items() if key not in dict2}
 
-def enrichment_publications(base_publications_unique, reference_publications_unique, reference, document_frequency_dict, num_documents):
+def enrichment_publications(base_publications_unique, reference_publications_unique, combined_publications_unique, reference):
     """
     Jede Ausgangspublikation in all_items wird ergänzt um Terme aus den referenzierten bzw. referenzierenden 
     Publikationen der jeweiligen Ausgangspublikation. Dabei werden nur Terme übernommen, die noch nicht in der Ausgangspublikation
@@ -286,21 +298,32 @@ def enrichment_publications(base_publications_unique, reference_publications_uni
     """
     # Convert referenced_works list to a dictionary for quick lookup
     reference_publications_dict = {publication['id']: publication['kombinierte Terme Titel und Abstract'] for publication in reference_publications_unique}
+    combined_publications_dict = {publication['id']: publication['kombinierte Terme Titel und Abstract'] for publication in combined_publications_unique}
+    combined_terms = []
+
+    for id in combined_publications_dict:
+        combined_terms.append(combined_publications_dict[id])
+            # Aggregate terms and store in the item
+    document_frequency_overall_dict = document_frequency(combined_terms)
 
     # Enrich each item in all_items
     for item in base_publications_unique:
         if reference in item:
             combined_terms_referencing = {}
+            reference_publications = []
+            num_documents = 0
             for id_ref in item[reference]:
                 if id_ref in reference_publications_dict:
                 # Add the 'kombinierte Terme' from the referenced publication
                     combined_terms_referencing= combine_dictionaries(combined_terms_referencing, reference_publications_dict[id_ref])
-                #combined_terms_referencing.append(reference_publications_dict[id_ref])
+                    #offene Aufgabe: Liste mit dict erstellen
+                    reference_publications.append(reference_publications_dict[id_ref])
+                    num_documents += 1
             # Aggregate terms and store in the item
+            document_frequency_dict = document_frequency(reference_publications)
             combined_terms_item_dict = item['kombinierte Terme Titel und Abstract']
             combined_terms_referencing_excl = exclude_dict(combined_terms_referencing, combined_terms_item_dict)
-            item['kombinierte Terme ' + reference] = assign_tfidf(combined_terms_referencing_excl, document_frequency_dict, num_documents)
-            #item['kombinierte Terme ' + reference] = combined_terms_referencing_excl
+            item['kombinierte Terme ' + reference] = assign_df(combined_terms_referencing_excl, document_frequency_dict, document_frequency_overall_dict, num_documents)
 
 
     save_to_json('publications.json', base_publications_unique)
@@ -314,6 +337,23 @@ def collect_all_publications(publications_list):
                 publications_unique.append(item)
                 publications_unique_id.append(item['id'])
     return publications_unique
+
+def merge_and_deduplicate(list1, list2):
+    combined_list = list1 + list2
+    unique_list = list(set(combined_list))
+    return unique_list
+
+def solr_ready (base_publications_unique):
+    # Behalten nur der benötigten Felder
+    necessary_fields = ["id", "title", "authorships", "abstract", "kombinierte Terme referenced_works", "kombinierte Terme referencing_works",
+                        "kombinierte Terme reference_works"]
+    filtered_publications = []
+
+    for publication in base_publications_unique:
+        filtered_publication = {field: publication[field] for field in necessary_fields if field in publication}
+        filtered_publications.append(filtered_publication)
+
+    return filtered_publications
 
 
 
@@ -340,7 +380,7 @@ referenced_publications_ids_complete = []
 # referenced_publications_list enthält alle IDs der zitierten Publikationen der Ausgangspublikationen
 referenced_publications_list = []
 referencing_publications_list = []
-document_frequency_dict = {}
+combined_terms_tfidf = []
 
 # Beispiel Aufruf der Funktion
 #Abruf der Metadaten Ausgangspublikation, zitierte und zitierende Publikationen
@@ -357,9 +397,14 @@ term_normalisation(base_publications_unique, "publications.json")
 
 # Zusammenführung aller Publikationen (Ausgangspublikationen, zitierte und zitierende Publikationen) zur Berechnung der Document Frequency der einzelnen Terme
 combined_publications_unique = collect_all_publications([base_publications_unique, referenced_publications_unique, referencing_publications_unique])
-document_frequency_dict = document_frequency(combined_publications_unique, document_frequency_dict)
-num_documents = len(combined_publications_unique)
+reference_publications_unique = collect_all_publications([referenced_publications_unique, referencing_publications_unique])
 
-#Anreicherung der Ausgangspublikationen mit den jeweils 10 Termen mit den höchsten tf-idf Werten
-enrichment_publications(base_publications_unique, referencing_publications_unique, 'referencing works', document_frequency_dict, num_documents)
-enrichment_publications(base_publications_unique, referenced_publications_unique, 'referenced_works', document_frequency_dict, num_documents)
+#num_documents = len(combined_publications_unique)
+
+combined_publications_reference_unique = collect_all_publications([referenced_publications_unique, referencing_publications_unique])
+
+#Anreicherung der Ausgangspublikationen mit den jeweils 10 Termen mit den höchsten idf Werten
+enrichment_publications(base_publications_unique, referencing_publications_unique, combined_publications_unique, 'referencing_works')
+enrichment_publications(base_publications_unique, referenced_publications_unique, combined_publications_unique, 'referenced_works')
+enrichment_publications(base_publications_unique, reference_publications_unique, combined_publications_unique, 'reference_works')
+save_to_json("publications.json", solr_ready(base_publications_unique))
