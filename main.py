@@ -85,8 +85,7 @@ def get_referenced_works(base_publications_unique):
 
     save_to_json("referenced_publications_unique.json", referenced_publications_unique)
 
-    summe_referenced_work_Count = sum(item.get('referenced_works_count', 0) for item in base_publications_unique)
-    print("Die Summe der 'referenced_works_count' ist:", summe_referenced_work_Count)
+    print(f"Anzahl der unique referenced publications: {len(referenced_publications_unique)}")
 
     return referenced_publications_unique
 
@@ -101,33 +100,10 @@ def get_referencing_works(base_publications_unique):
             pager_referencing = Works().filter(ids={"openalex": id}).select(["id", "title", "authorships", "referenced_works", "abstract_inverted_index", "cited_by_count","referenced_works_count"])
             referencing_publications_unique = bearbeitung_metadaten(pager_referencing, referencing_publications_unique)
 
-
-    #save_to_json("referencing_publications.json", referencing_publications_list)
-    #save_to_json("publications.json", base_publications_unique)
-
-    print(f"Anzahl der Referencing Works: {len(referencing_publications_list)}")
-
-    for ref_id in referencing_publications_list:
-        for ref in referencing_publications_unique:
-            if ref_id['id'] == ref['id']:
-                ref['Anzahl'] += 1
-                break
-        else:
-            referencing_publications_unique.append({
-                'id': ref_id['id'], 'Anzahl': 1, 'title': ref_id['title'],
-                'authorships': ref_id['authorships'], 'cited_by_count': ref_id['cited_by_count'],
-                'abstract': ref_id['abstract']
-            })
-
     #referencing_publications_unique.sort(key=lambda x: x.get('Anzahl', 0), reverse=True)
     save_to_json("referencing_publications_unique.json", referencing_publications_unique)
 
-    print(f"Unique Referencing Works Count: {len(referencing_publications_unique)}")
-    summe_anzahl = sum(item.get('Anzahl', 0) for item in referencing_publications_unique)
-    summe_cited_by_count = sum(item.get('cited_by_count', 0) for item in base_publications_unique)
-
-    print("Die Summe der 'Anzahl' ist:", summe_anzahl)
-    print("Die Summe der 'cited_by_count' ist:", summe_cited_by_count)
+    print(f"Anzahl der unique referencing publications: {len(referencing_publications_unique)}")
 
     return referencing_publications_unique
 
