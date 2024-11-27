@@ -31,8 +31,7 @@ def setup_pyalex():
     config.retry_backoff_factor = 0.1
     config.retry_http_codes = RETRY_HTTP_CODES
 
-
-def get_by_api(pager, base_publications_unique, referenced_publications_list):
+def bearbeitung_metadaten(pager, base_publications_unique):
     for page in chain(pager.paginate(per_page=200, n_max=None)):
         for publication in page:
             publication['id'] = publication['id'].replace("https://openalex.org/", "")
@@ -44,37 +43,45 @@ def get_by_api(pager, base_publications_unique, referenced_publications_list):
                 ref_id.replace("https://openalex.org/", "")
                 for ref_id in publication.get('referenced_works', [])
             ]
-            referenced_publications_list.extend({'id': ref_id} for ref_id in referenced_works_id)
+
+            Pager_referencing = Works().filter(cites=publication['id']).select(
+                ["id"])
+            referencing_works_id = []
+            for page in chain(Pager_referencing.paginate(per_page=200, n_max=None)):
+                for item_ref in page:
+                    item_ref['id'] = item_ref['id'].replace("https://openalex.org/", "")
+                    referencing_works_id.append(item_ref['id'])
 
             base_publications_unique.append({
                 'id': publication['id'], 'title': publication['title'], 'authorships': publication['authorships'],
                 'abstract': publication["abstract"] or "", 'cited_by_count': publication['cited_by_count'],
-                'referenced_works': referenced_works_id, 'reference_works': referenced_works_id, 'referenced_works_count': publication['referenced_works_count']
+                'referencing_works': referencing_works_id,
+                'referenced_works': referenced_works_id, 'reference_works': merge_and_deduplicate(referencing_works_id, referenced_works_id), 'referenced_works_count': publication['referenced_works_count']
             })
+
+    return base_publications_unique
+
+def get_by_api(pager):
+    # all_publications_unique enthält einmalig die Metadaten aller Ausgangspublikationen
+    base_publications_unique = bearbeitung_metadaten(pager, [])
+
 
     #save_to_json("publications.json", base_publications_unique)
     print(f"Anzahl der Ausgangspublikationen: {len(base_publications_unique)}")
-    print(f"Gesamtanzahl der Referenced Works: {len(referenced_publications_list)}")
+
+    return base_publications_unique
 
 
-def get_referenced_works(referenced_publications_list, referenced_publications_ids_complete, referenced_publications_unique, base_publications_unique):
+def get_referenced_works(base_publications_unique):
+    # referenced_publications_unique enthält einmalig die Metadaten aller zitierten Publikationen der Ausgangspublikationen
+    referenced_publications_unique = []
 
     for publication in base_publications_unique:
         for id in publication['referenced_works']:
             if any(item['id'] == id for item in referenced_publications_unique):
                 continue
-            pager_referenced = Works().filter(ids={"openalex": id}).select(["id", "title", "authorships", "referenced_works", "referenced_works_count", "abstract_inverted_index"])
-            for page in chain(pager_referenced.paginate(per_page=200, n_max=None)):
-                for publication_ref in page:
-                    publication_ref['id'] = publication_ref['id'].replace("https://openalex.org/", "")
-                    author_display_names = [authorship["author"]["display_name"] for authorship in publication_ref["authorships"]]
-                    publication_ref['authorships'] = author_display_names
-                    publication_ref['abstract'] = publication_ref["abstract"] or ""
-                    referenced_publications_unique.append({
-                        'id': publication_ref['id'], 'Anzahl': 1, 'title': publication_ref['title'],
-                        'authorships': publication_ref['authorships'], 'abstract': publication_ref['abstract'],
-                        'referenced_works_count': publication_ref['referenced_works_count']
-                    })
+            pager_referenced = Works().filter(ids={"openalex": id}).select(["id", "title", "authorships", "referenced_works", "abstract_inverted_index", "cited_by_count","referenced_works_count"])
+            referenced_publications_unique = bearbeitung_metadaten(pager_referenced, referenced_publications_unique)
 
     save_to_json("referenced_publications_unique.json", referenced_publications_unique)
 
@@ -84,21 +91,16 @@ def get_referenced_works(referenced_publications_list, referenced_publications_i
     return referenced_publications_unique
 
 
-def get_referencing_works(referencing_publications_list, referencing_publications_unique, base_publications_unique):
-    for item in base_publications_unique:
-        Pager_referencing = Works().filter(cites=item['id']).select(
-            ["id", "title", "authorships", "cited_by_count", "abstract_inverted_index"])
-        referencing_works_id = []
-        for page in chain(Pager_referencing.paginate(per_page=200, n_max=None)):
-            for item_ref in page:
-                item_ref['id'] = item_ref['id'].replace("https://openalex.org/", "")
-                author_display_names = [authorship["author"]["display_name"] for authorship in item_ref["authorships"]]
-                item_ref['authorships'] = author_display_names
-                item_ref['abstract'] = item_ref["abstract"] or ""
-                referencing_publications_list.append(item_ref)
-                referencing_works_id.append(item_ref['id'])
-        item['referencing_works'] = referencing_works_id
-        item['reference_works'] = merge_and_deduplicate(item['referencing_works'], item['referenced_works'])
+def get_referencing_works(base_publications_unique):
+    referencing_publications_unique = []
+
+    for publication in base_publications_unique:
+        for id in publication['referencing_works']:
+            if any(item['id'] == id for item in referencing_publications_unique):
+                continue
+            pager_referencing = Works().filter(ids={"openalex": id}).select(["id", "title", "authorships", "referenced_works", "abstract_inverted_index", "cited_by_count","referenced_works_count"])
+            referencing_publications_unique = bearbeitung_metadaten(pager_referencing, referencing_publications_unique)
+
 
     #save_to_json("referencing_publications.json", referencing_publications_list)
     #save_to_json("publications.json", base_publications_unique)
@@ -117,7 +119,7 @@ def get_referencing_works(referencing_publications_list, referencing_publication
                 'abstract': ref_id['abstract']
             })
 
-    referencing_publications_unique.sort(key=lambda x: x.get('Anzahl', 0), reverse=True)
+    #referencing_publications_unique.sort(key=lambda x: x.get('Anzahl', 0), reverse=True)
     save_to_json("referencing_publications_unique.json", referencing_publications_unique)
 
     print(f"Unique Referencing Works Count: {len(referencing_publications_unique)}")
@@ -126,6 +128,8 @@ def get_referencing_works(referencing_publications_list, referencing_publication
 
     print("Die Summe der 'Anzahl' ist:", summe_anzahl)
     print("Die Summe der 'cited_by_count' ist:", summe_cited_by_count)
+
+    return referencing_publications_unique
 
 
 def get_stopwords_for_language(language):
@@ -351,16 +355,7 @@ def solr_ready (base_publications_unique):
 # Hauptprogrammfluss
 #pager = Works().filter(primary_topic={"id": "T13616"}).select(["id", "title", "authorships", "referenced_works", "abstract_inverted_index","referenced_works_count", "cited_by_count"])
 
-pager = Works().filter(ids={"openalex": "W2053522485"}).select(["id", "title", "authorships", "referenced_works", "abstract_inverted_index", "cited_by_count","referenced_works_count", ])
-
-# referencing_publications_unique enthält einmalig die Metadaten aller zitierenden Publikationen der Ausgangspublikationen
-referencing_publications_unique = []
-
-# all_publications_unique enthält einmalig die Metadaten aller Ausgangspublikationen
-base_publications_unique = []
-
-# referenced_publications_unique enthält einmalig die Metadaten aller zitierten Publikationen der Ausgangspublikationen
-referenced_publications_unique = []
+pager = Works().filter(ids={"openalex": "W2053522485"}).select(["id", "title", "authorships", "referenced_works", "abstract_inverted_index", "cited_by_count","referenced_works_count"])
 
 # referencing_publications_complete enthält die Metadaten aller zitierenden Publikationen in der Häufigkeit mit der sie die Ausgangspublikationen zitieren
 referencing_publications_complete = []
@@ -369,15 +364,14 @@ referencing_publications_complete = []
 referenced_publications_ids_complete = []
 
 # referenced_publications_list enthält alle IDs der zitierten Publikationen der Ausgangspublikationen
-referenced_publications_list = []
 referencing_publications_list = []
 combined_terms_tfidf = []
 
 # Beispiel Aufruf der Funktion
 #Abruf der Metadaten Ausgangspublikation, zitierte und zitierende Publikationen
-get_by_api(pager, base_publications_unique, referenced_publications_list)
-get_referenced_works(referenced_publications_list, referenced_publications_ids_complete, referenced_publications_unique, base_publications_unique)
-get_referencing_works(referencing_publications_list, referencing_publications_unique, base_publications_unique)
+base_publications_unique = get_by_api(pager)
+referenced_publications_unique = get_referenced_works(base_publications_unique)
+referencing_publications_unique = get_referencing_works(base_publications_unique)
 
 #Zusammenführung der Terme von Titel und Abstrakt jeder Publikation in dem neuen Feld 'kombinierte Terme Titel und Abstract'.
 #Vorkommenshäufigkeit der Terme, Entfernen von Mehrfacheinträgen von Termen, lowercasing, Reduktion auf den Wortstamm, entfernen von Zahlen und Termen bestehend aus weniger als 3 Zeichen
@@ -398,4 +392,4 @@ combined_publications_reference_unique = collect_all_publications([referenced_pu
 enrichment_publications(base_publications_unique, referencing_publications_unique, combined_publications_unique, 'referencing_works')
 enrichment_publications(base_publications_unique, referenced_publications_unique, combined_publications_unique, 'referenced_works')
 enrichment_publications(base_publications_unique, reference_publications_unique, combined_publications_unique, 'reference_works')
-save_to_json("publications.json", solr_ready(base_publications_unique))
+#save_to_json("publications.json", solr_ready(base_publications_unique))
