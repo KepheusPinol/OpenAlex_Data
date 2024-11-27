@@ -54,9 +54,10 @@ def bearbeitung_metadaten(pager, base_publications_unique):
 
             base_publications_unique.append({
                 'id': publication['id'], 'title': publication['title'], 'authorships': publication['authorships'],
-                'abstract': publication["abstract"] or "", 'cited_by_count': publication['cited_by_count'],
-                'referencing_works': referencing_works_id,
-                'referenced_works': referenced_works_id, 'reference_works': merge_and_deduplicate(referencing_works_id, referenced_works_id), 'referenced_works_count': publication['referenced_works_count']
+                'abstract': publication["abstract"] or "",
+                'cited_by_count': publication['cited_by_count'], 'referencing_works': referencing_works_id,
+                'referenced_works_count': publication['referenced_works_count'], 'referenced_works': referenced_works_id,
+                'reference_works': merge_and_deduplicate(referencing_works_id, referenced_works_id),
             })
 
     return base_publications_unique
@@ -215,7 +216,7 @@ def assign_tfidf(term_lists, document_frequency_dict, num_documents):
 
     return {k:v for (k,v) in sorted_tf_idf[:10]}
 
-def assign_df(term_lists, document_frequency_dict, document_frequency_overall_dict, num_documents):
+def assign_df(term_lists, document_frequency_dict):
     dfs = {
         term:document_frequency_dict[term]
             for term, freq in term_lists.items()
@@ -329,9 +330,9 @@ def solr_ready (base_publications_unique):
 
 
 # Hauptprogrammfluss
-#pager = Works().filter(primary_topic={"id": "T13616"}).select(["id", "title", "authorships", "referenced_works", "abstract_inverted_index","referenced_works_count", "cited_by_count"])
+pager = Works().filter(primary_topic={"id": "T13616"}).select(["id", "title", "authorships", "referenced_works", "abstract_inverted_index","referenced_works_count", "cited_by_count"])
 
-pager = Works().filter(ids={"openalex": "W2053522485"}).select(["id", "title", "authorships", "referenced_works", "abstract_inverted_index", "cited_by_count","referenced_works_count"])
+#pager = Works().filter(ids={"openalex": "W2053522485"}).select(["id", "title", "authorships", "referenced_works", "abstract_inverted_index", "cited_by_count","referenced_works_count"])
 
 # referencing_publications_complete enthält die Metadaten aller zitierenden Publikationen in der Häufigkeit mit der sie die Ausgangspublikationen zitieren
 referencing_publications_complete = []
