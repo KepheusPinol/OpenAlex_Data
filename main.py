@@ -13,6 +13,7 @@ from nltk.stem.snowball import SnowballStemmer
 from langdetect import detect, DetectorFactory
 from langdetect.lang_detect_exception import LangDetectException
 
+#dies ist nur in der co-reference Version enthalten
 # Sicherstellen, dass die Stopwörter heruntergeladen sind
 nltk.download('stopwords')
 
