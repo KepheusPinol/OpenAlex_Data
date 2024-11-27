@@ -358,9 +358,9 @@ def solr_ready (base_publications_unique):
 
 
 # Hauptprogrammfluss
-pager = Works().filter(primary_topic={"id": "T13616"}).select(["id", "title", "authorships", "referenced_works", "abstract_inverted_index","referenced_works_count", "cited_by_count"])
+#pager = Works().filter(primary_topic={"id": "T13616"}).select(["id", "title", "authorships", "referenced_works", "abstract_inverted_index","referenced_works_count", "cited_by_count"])
 
-#pager = Works().filter(ids={"openalex": "W2053522485"}).select(["id", "title", "authorships", "referenced_works", "abstract_inverted_index", "cited_by_count","referenced_works_count", ])
+pager = Works().filter(ids={"openalex": "W2053522485"}).select(["id", "title", "authorships", "referenced_works", "abstract_inverted_index", "cited_by_count","referenced_works_count", ])
 
 # referencing_publications_unique enthält einmalig die Metadaten aller zitierenden Publikationen der Ausgangspublikationen
 referencing_publications_unique = []
