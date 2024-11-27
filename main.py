@@ -31,7 +31,7 @@ def setup_pyalex():
     config.retry_http_codes = RETRY_HTTP_CODES
 
 
-def get_base_publications(pager, base_publications_unique, referenced_publications_list):
+def get_by_api(pager, base_publications_unique, referenced_publications_list):
     for page in chain(pager.paginate(per_page=200, n_max=None)):
         for publication in page:
             publication['id'] = publication['id'].replace("https://openalex.org/", "")
@@ -384,7 +384,7 @@ combined_terms_tfidf = []
 
 # Beispiel Aufruf der Funktion
 #Abruf der Metadaten Ausgangspublikation, zitierte und zitierende Publikationen
-get_base_publications(pager, base_publications_unique, referenced_publications_list)
+get_by_api(pager, base_publications_unique, referenced_publications_list)
 get_referenced_works(referenced_publications_list, referenced_publications_ids_complete, referenced_publications_unique, base_publications_unique)
 get_referencing_works(referencing_publications_list, referencing_publications_unique, base_publications_unique)
 
