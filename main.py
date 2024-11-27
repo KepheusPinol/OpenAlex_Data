@@ -58,40 +58,30 @@ def get_by_api(pager, base_publications_unique, referenced_publications_list):
 
 
 def get_referenced_works(referenced_publications_list, referenced_publications_ids_complete, referenced_publications_unique, base_publications_unique):
-    for publication in referenced_publications_list:
-        for referenced_pub in referenced_publications_ids_complete:
-            if publication['id'] == referenced_pub['id']:
-                referenced_pub['Anzahl'] += 1
-                break
-        else:
-            referenced_publications_ids_complete.append({'id': publication['id'], 'Anzahl': 1})
 
-    referenced_publications_ids_complete.sort(key=lambda x: x.get('Anzahl', 0), reverse=True)
-    #save_to_json("referenced_ids.json", referenced_publications_ids_complete)
-
-    print(f"Unique Referenced Works Count: {len(referenced_publications_ids_complete)}")
-    summe_anzahl = sum(item.get('Anzahl', 0) for item in referenced_publications_ids_complete)
-    print("Die Summe der 'Anzahl' ist:", summe_anzahl)
-
-    for publication in referenced_publications_ids_complete:
-        pager_referenced = Works().filter(ids={"openalex": publication['id']}).select(
-            ["id", "title", "authorships", "referenced_works", "referenced_works_count", "abstract_inverted_index"])
-        for page in chain(pager_referenced.paginate(per_page=200, n_max=None)):
-            for publication_ref in page:
-                publication_ref['id'] = publication_ref['id'].replace("https://openalex.org/", "")
-                author_display_names = [authorship["author"]["display_name"] for authorship in publication_ref["authorships"]]
-                publication_ref['authorships'] = author_display_names
-                publication_ref['abstract'] = publication_ref["abstract"] or ""
-                referenced_publications_unique.append({
-                    'id': publication_ref['id'], 'Anzahl': 1, 'title': publication_ref['title'],
-                    'authorships': publication_ref['authorships'], 'abstract': publication_ref['abstract'],
-                    'referenced_works_count': publication_ref['referenced_works_count']
-                })
+    for publication in base_publications_unique:
+        for id in publication['referenced_works']:
+            if any(item['id'] == id for item in referenced_publications_unique):
+                continue
+            pager_referenced = Works().filter(ids={"openalex": id}).select(["id", "title", "authorships", "referenced_works", "referenced_works_count", "abstract_inverted_index"])
+            for page in chain(pager_referenced.paginate(per_page=200, n_max=None)):
+                for publication_ref in page:
+                    publication_ref['id'] = publication_ref['id'].replace("https://openalex.org/", "")
+                    author_display_names = [authorship["author"]["display_name"] for authorship in publication_ref["authorships"]]
+                    publication_ref['authorships'] = author_display_names
+                    publication_ref['abstract'] = publication_ref["abstract"] or ""
+                    referenced_publications_unique.append({
+                        'id': publication_ref['id'], 'Anzahl': 1, 'title': publication_ref['title'],
+                        'authorships': publication_ref['authorships'], 'abstract': publication_ref['abstract'],
+                        'referenced_works_count': publication_ref['referenced_works_count']
+                    })
 
     save_to_json("referenced_publications_unique.json", referenced_publications_unique)
 
     summe_referenced_work_Count = sum(item.get('referenced_works_count', 0) for item in base_publications_unique)
     print("Die Summe der 'referenced_works_count' ist:", summe_referenced_work_Count)
+
+    return referenced_publications_unique
 
 
 def get_referencing_works(referencing_publications_list, referencing_publications_unique, base_publications_unique):
