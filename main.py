@@ -44,20 +44,11 @@ def bearbeitung_metadaten(pager, base_publications_unique):
                 for ref_id in publication.get('referenced_works', [])
             ]
 
-            Pager_referencing = Works().filter(cites=publication['id']).select(
-                ["id"])
-            referencing_works_id = []
-            for page in chain(Pager_referencing.paginate(per_page=200, n_max=None)):
-                for item_ref in page:
-                    item_ref['id'] = item_ref['id'].replace("https://openalex.org/", "")
-                    referencing_works_id.append(item_ref['id'])
-
             base_publications_unique.append({
                 'id': publication['id'], 'title': publication['title'], 'authorships': publication['authorships'],
                 'abstract': publication["abstract"] or "",
-                'cited_by_count': publication['cited_by_count'], 'referencing_works': referencing_works_id,
                 'referenced_works_count': publication['referenced_works_count'], 'referenced_works': referenced_works_id,
-                'reference_works': merge_and_deduplicate(referencing_works_id, referenced_works_id),
+                'cited_by_count': publication['cited_by_count'],
             })
 
     return base_publications_unique
@@ -66,43 +57,45 @@ def get_by_api(pager):
     # all_publications_unique enthält einmalig die Metadaten aller Ausgangspublikationen
     base_publications_unique = bearbeitung_metadaten(pager, [])
 
-
     #save_to_json("publications.json", base_publications_unique)
     print(f"Anzahl der Ausgangspublikationen: {len(base_publications_unique)}")
+
+    save_to_json("publications.json", base_publications_unique)
 
     return base_publications_unique
 
 
-def get_referenced_works(base_publications_unique):
+def get_referenced_works(base_publications_unique, filename):
     # referenced_publications_unique enthält einmalig die Metadaten aller zitierten Publikationen der Ausgangspublikationen
     referenced_publications_unique = []
 
     for publication in base_publications_unique:
         for id in publication['referenced_works']:
             if any(item['id'] == id for item in referenced_publications_unique):
-                continue
+                break
             pager_referenced = Works().filter(ids={"openalex": id}).select(["id", "title", "authorships", "referenced_works", "abstract_inverted_index", "cited_by_count","referenced_works_count"])
             referenced_publications_unique = bearbeitung_metadaten(pager_referenced, referenced_publications_unique)
 
-    save_to_json("referenced_publications_unique.json", referenced_publications_unique)
+    save_to_json(filename, referenced_publications_unique)
 
     print(f"Anzahl der unique referenced publications: {len(referenced_publications_unique)}")
 
     return referenced_publications_unique
 
 
-def get_referencing_works(base_publications_unique):
+def get_referencing_works(base_publications_unique, filename):
     referencing_publications_unique = []
 
     for publication in base_publications_unique:
-        for id in publication['referencing_works']:
-            if any(item['id'] == id for item in referencing_publications_unique):
-                continue
-            pager_referencing = Works().filter(ids={"openalex": id}).select(["id", "title", "authorships", "referenced_works", "abstract_inverted_index", "cited_by_count","referenced_works_count"])
-            referencing_publications_unique = bearbeitung_metadaten(pager_referencing, referencing_publications_unique)
+        referencing_publications = []
+        pager_referencing = Works().filter(cites=publication['id']).select(["id", "title", "authorships", "referenced_works", "abstract_inverted_index", "cited_by_count","referenced_works_count"])
+        referencing_publications = bearbeitung_metadaten(pager_referencing, referencing_publications)
+        publication['referencing_works'] = referencing_publications
+        publication['reference_works'] = merge_and_deduplicate(publication['referenced_works'], publication['referencing_works'])
+        #anhängen der referencing_publications an referencing_publications_unique?
 
     #referencing_publications_unique.sort(key=lambda x: x.get('Anzahl', 0), reverse=True)
-    save_to_json("referencing_publications_unique.json", referencing_publications_unique)
+    save_to_json(filename, referencing_publications_unique)
 
     print(f"Anzahl der unique referencing publications: {len(referencing_publications_unique)}")
 
@@ -295,7 +288,7 @@ def enrichment_publications(base_publications_unique, reference_publications_uni
             document_frequency_dict = document_frequency(reference_publications)
             combined_terms_item_dict = item['kombinierte Terme Titel und Abstract']
             combined_terms_referencing_excl = exclude_dict(combined_terms_referencing, combined_terms_item_dict)
-            item['kombinierte Terme ' + reference] = assign_df(combined_terms_referencing_excl, document_frequency_dict, document_frequency_overall_dict, num_documents)
+            item['kombinierte Terme ' + reference] = assign_df(combined_terms_referencing_excl, document_frequency_dict)
 
 
     save_to_json('publications.json', base_publications_unique)
@@ -344,29 +337,34 @@ referenced_publications_ids_complete = []
 referencing_publications_list = []
 combined_terms_tfidf = []
 
+all_publications_unique = []
+
 # Beispiel Aufruf der Funktion
 #Abruf der Metadaten Ausgangspublikation, zitierte und zitierende Publikationen
 base_publications_unique = get_by_api(pager)
-referenced_publications_unique = get_referenced_works(base_publications_unique)
-referencing_publications_unique = get_referencing_works(base_publications_unique)
+referenced_publications_unique = get_referenced_works(base_publications_unique, "referenced_publications_unique.json")
+#referencing_publications_unique = get_referencing_works(base_publications_unique, "referencing_publications_unique.json")
 
 #Zusammenführung der Terme von Titel und Abstrakt jeder Publikation in dem neuen Feld 'kombinierte Terme Titel und Abstract'.
 #Vorkommenshäufigkeit der Terme, Entfernen von Mehrfacheinträgen von Termen, lowercasing, Reduktion auf den Wortstamm, entfernen von Zahlen und Termen bestehend aus weniger als 3 Zeichen
 
-term_normalisation(referenced_publications_unique, "referenced_publications_unique.json")
-term_normalisation(referencing_publications_unique, "referencing_publications_unique.json")
-term_normalisation(base_publications_unique, "publications.json")
+#term_normalisation(referenced_publications_unique, "referenced_publications_unique.json")
+#term_normalisation(referencing_publications_unique, "referencing_publications_unique.json")
+#term_normalisation(base_publications_unique, "publications.json")
 
 # Zusammenführung aller Publikationen (Ausgangspublikationen, zitierte und zitierende Publikationen) zur Berechnung der Document Frequency der einzelnen Terme
-combined_publications_unique = collect_all_publications([base_publications_unique, referenced_publications_unique, referencing_publications_unique])
-reference_publications_unique = collect_all_publications([referenced_publications_unique, referencing_publications_unique])
+#combined_publications_unique = collect_all_publications([base_publications_unique, referenced_publications_unique, referencing_publications_unique])
+#reference_publications_unique = collect_all_publications([referenced_publications_unique, referencing_publications_unique])
 
 #num_documents = len(combined_publications_unique)
 
-combined_publications_reference_unique = collect_all_publications([referenced_publications_unique, referencing_publications_unique])
+#combined_publications_reference_unique = collect_all_publications([referenced_publications_unique, referencing_publications_unique])
 
 #Anreicherung der Ausgangspublikationen mit den jeweils 10 Termen mit den höchsten idf Werten
-enrichment_publications(base_publications_unique, referencing_publications_unique, combined_publications_unique, 'referencing_works')
-enrichment_publications(base_publications_unique, referenced_publications_unique, combined_publications_unique, 'referenced_works')
-enrichment_publications(base_publications_unique, reference_publications_unique, combined_publications_unique, 'reference_works')
+#enrichment_publications(base_publications_unique, referencing_publications_unique, combined_publications_unique, 'referencing_works')
+#enrichment_publications(base_publications_unique, referenced_publications_unique, combined_publications_unique, 'referenced_works')
+#enrichment_publications(base_publications_unique, reference_publications_unique, combined_publications_unique, 'reference_works')
 #save_to_json("publications.json", solr_ready(base_publications_unique))
+
+#print(f"Anzahl der all unique publications: {len(all_publications_unique)}")
+
