@@ -35,6 +35,8 @@ def bearbeitung_metadaten(pager, base_publications_unique):
     for page in chain(pager.paginate(per_page=200, n_max=None)):
         for publication in page:
             publication['id'] = publication['id'].replace("https://openalex.org/", "")
+            if any(item['id'] == publication['id'] for item in base_publications_unique):
+                break
             author_display_names = [authorship["author"]["display_name"] for authorship in publication["authorships"]]
             publication['authorships'] = author_display_names
             publication['abstract'] = publication["abstract"] or ""
@@ -70,10 +72,8 @@ def get_referenced_works(base_publications_unique, filename):
     referenced_publications_unique = []
 
     for publication in base_publications_unique:
-        for id in publication['referenced_works']:
-            if any(item['id'] == id for item in referenced_publications_unique):
-                break
-            pager_referenced = Works().filter(ids={"openalex": id}).select(["id", "title", "authorships", "referenced_works", "abstract_inverted_index", "cited_by_count","referenced_works_count"])
+        if len(publication['referenced_works']) > 0:
+            pager_referenced = build_pager(publication['referenced_works'])
             referenced_publications_unique = bearbeitung_metadaten(pager_referenced, referenced_publications_unique)
 
     save_to_json(filename, referenced_publications_unique)
@@ -82,6 +82,17 @@ def get_referenced_works(base_publications_unique, filename):
 
     return referenced_publications_unique
 
+
+def build_pager(list_ids):
+    #pagers = []
+    ref_id = '|'.join(str(id) for id in list_ids[:50])
+        #pagers.append(pager)
+    pager = Works().filter(ids={"openalex": ref_id}).select([
+        "id", "title", "authorships", "referenced_works",
+        "abstract_inverted_index", "cited_by_count", "referenced_works_count"])
+    return pager
+
+    #return pagers
 
 def get_referencing_works(base_publications_unique, filename):
     referencing_publications_unique = []
