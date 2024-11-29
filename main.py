@@ -70,12 +70,14 @@ def get_by_api(pager):
 def get_referenced_works(base_publications_unique, filename):
     # referenced_publications_unique enthält einmalig die Metadaten aller zitierten Publikationen der Ausgangspublikationen
     referenced_publications_unique = []
+    referenced_publications_unique_ids = []
 
     for publication in base_publications_unique:
-        if len(publication['referenced_works']) > 0:
-            pager_referenced = build_pager(publication['referenced_works'])
-            for pager in pager_referenced:
-                referenced_publications_unique = bearbeitung_metadaten(pager, referenced_publications_unique)
+        referenced_publications_unique_ids = merge_and_deduplicate(referenced_publications_unique_ids, publication['referenced_works'])
+    print(len(referenced_publications_unique_ids))
+    pager_referenced = build_pager(referenced_publications_unique_ids)
+    for pager in pager_referenced:
+        referenced_publications_unique = bearbeitung_metadaten(pager, referenced_publications_unique)
 
     save_to_json(filename, referenced_publications_unique)
 
