@@ -74,7 +74,8 @@ def get_referenced_works(base_publications_unique, filename):
     for publication in base_publications_unique:
         if len(publication['referenced_works']) > 0:
             pager_referenced = build_pager(publication['referenced_works'])
-            referenced_publications_unique = bearbeitung_metadaten(pager_referenced, referenced_publications_unique)
+            for pager in pager_referenced:
+                referenced_publications_unique = bearbeitung_metadaten(pager, referenced_publications_unique)
 
     save_to_json(filename, referenced_publications_unique)
 
@@ -84,15 +85,23 @@ def get_referenced_works(base_publications_unique, filename):
 
 
 def build_pager(list_ids):
-    #pagers = []
-    ref_id = '|'.join(str(id) for id in list_ids[:50])
-        #pagers.append(pager)
-    pager = Works().filter(ids={"openalex": ref_id}).select([
-        "id", "title", "authorships", "referenced_works",
-        "abstract_inverted_index", "cited_by_count", "referenced_works_count"])
-    return pager
+    pagers = []
 
-    #return pagers
+    # Durch die ID-Liste in Schritten von 50 iterieren
+    for i in range(0, len(list_ids), 50):
+        # Erstellen eines ref_id Strings aus den aktuellen 50 IDs (oder weniger, wenn nicht mehr verfügbar)
+        ref_id = '|'.join(str(id) for id in list_ids[i:i + 50])
+
+        # Erstellen eines pager-Objekts mit den aktuellen IDs
+        pager = Works().filter(ids={"openalex": ref_id}).select([
+            "id", "title", "authorships", "referenced_works",
+            "abstract_inverted_index", "cited_by_count", "referenced_works_count"])
+
+        # Hinzufügen des pager-Objekts zur pagers-Liste
+        pagers.append(pager)
+
+    return pagers
+
 
 def get_referencing_works(base_publications_unique, filename):
     referencing_publications_unique = []
