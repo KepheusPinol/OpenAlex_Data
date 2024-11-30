@@ -62,6 +62,7 @@ def get_by_api(pager):
     #save_to_json("publications.json", base_publications_unique)
     print(f"Anzahl der Ausgangspublikationen: {len(base_publications_unique)}")
 
+    base_publications_unique.sort(key=lambda x: x.get('id', 0), reverse=True)
     save_to_json("publications.json", base_publications_unique)
 
     return base_publications_unique
@@ -78,6 +79,8 @@ def get_referenced_works(base_publications_unique, filename):
     pager_referenced = build_pager(referenced_publications_unique_ids)
     for pager in pager_referenced:
         referenced_publications_unique = bearbeitung_metadaten(pager, referenced_publications_unique)
+
+    referenced_publications_unique.sort(key=lambda x: x.get('id', 0), reverse=True)
 
     save_to_json(filename, referenced_publications_unique)
 
@@ -111,12 +114,14 @@ def get_referencing_works(base_publications_unique, filename):
     for publication in base_publications_unique:
         referencing_publications = []
         pager_referencing = Works().filter(cites=publication['id']).select(["id", "title", "authorships", "referenced_works", "abstract_inverted_index", "cited_by_count","referenced_works_count"])
+        referencing_publications_unique = bearbeitung_metadaten(pager_referencing, referencing_publications_unique)
         referencing_publications = bearbeitung_metadaten(pager_referencing, referencing_publications)
-        publication['referencing_works'] = referencing_publications
-        publication['reference_works'] = merge_and_deduplicate(publication['referenced_works'], publication['referencing_works'])
-        #anhängen der referencing_publications an referencing_publications_unique?
+        referencing_publications_ids = [pub['id'] for pub in referencing_publications]
 
-    #referencing_publications_unique.sort(key=lambda x: x.get('Anzahl', 0), reverse=True)
+        publication['referencing_works'] = referencing_publications_ids
+        publication['reference_works'] = merge_and_deduplicate(publication['referenced_works'], publication['referencing_works'])
+
+    referencing_publications_unique.sort(key=lambda x: x.get('id', 0), reverse=True)
     save_to_json(filename, referencing_publications_unique)
 
     print(f"Anzahl der unique referencing publications: {len(referencing_publications_unique)}")
@@ -365,7 +370,10 @@ all_publications_unique = []
 #Abruf der Metadaten Ausgangspublikation, zitierte und zitierende Publikationen
 base_publications_unique = get_by_api(pager)
 referenced_publications_unique = get_referenced_works(base_publications_unique, "referenced_publications_unique.json")
-#referencing_publications_unique = get_referencing_works(base_publications_unique, "referencing_publications_unique.json")
+referencing_publications_unique = get_referencing_works(base_publications_unique, "referencing_publications_unique.json")
+co_referenced_publications_unique = get_referencing_works(referenced_publications_unique, "co_referenced_publications_unique.json")
+co_referencing_publications_unique = get_referenced_works(referencing_publications_unique, "co_referencing_publications_unique.json")
+
 
 #Zusammenführung der Terme von Titel und Abstrakt jeder Publikation in dem neuen Feld 'kombinierte Terme Titel und Abstract'.
 #Vorkommenshäufigkeit der Terme, Entfernen von Mehrfacheinträgen von Termen, lowercasing, Reduktion auf den Wortstamm, entfernen von Zahlen und Termen bestehend aus weniger als 3 Zeichen
