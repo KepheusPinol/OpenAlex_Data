@@ -47,14 +47,16 @@ def bearbeitung_metadaten(pager, base_publications_unique):
                 ref_id.replace("https://openalex.org/", "")
                 for ref_id in publication.get('referenced_works', [])
             ]
-            if publication['cited_by_count'] < 2000:
+            if publication['cited_by_count'] < 200:
                 base_publications_unique.append({
                     'id': publication['id'], 'title': publication['title'], 'authorships': publication['authorships'],
                     'abstract': publication["abstract"] or "",
                     'referenced_works_count': publication['referenced_works_count'], 'referenced_works': referenced_works_id,
                     'cited_by_count': publication['cited_by_count'], 'referencing_works': [],
-                    'reference_works': [],
-                    'co_referenced_works': [], 'co_referencing_works': [], 'co_reference_works': []
+                    'count_reference': "", 'reference_works': [],
+                    'count_co_referenced' : "", 'co_referenced_works': [],
+                    'count_co_referencing' : "",'co_referencing_works': [],
+                    'count_co_reference' : "",'co_reference_works': []
                 })
 
     return base_publications_unique
@@ -124,6 +126,8 @@ def get_referencing_works(base_publications_unique, filename):
 
         publication['referencing_works'] = referencing_publications_ids
         publication['reference_works'] = merge_and_deduplicate(publication['referenced_works'], publication['referencing_works'])
+        publication['count_reference'] = len(publication['reference_works'])
+
 
     referencing_publications_unique.sort(key=lambda x: x.get('id', 0), reverse=True)
     save_to_json(filename, referencing_publications_unique)
@@ -286,18 +290,21 @@ def combine_dictionaries(dict1, dict2):
 def exclude_dict(dict1,dict2):
     return {key:value for key, value in dict1.items() if key not in dict2}
 
-def assign_co_reference(base_publications_unique, referenced_publications_unique, reference):
-    for publication in base_publications_unique:
-        for pub in referenced_publications_unique:
-            if reference == 'referenced_works':
-                if reference in pub and publication['id'] in pub[reference]:
-                    publication['co_referencing_works'] = merge_and_deduplicate(
-                        publication['co_referencing_works'], pub[reference])
-            else:
-                if reference == 'referencing_works':
+def assign_co_reference(base_publications_unique, reference_publications_unique, reference):
+    if reference == 'referenced_works':
+        for publication in base_publications_unique:
+            for pub in reference_publications_unique:
                     if reference in pub and publication['id'] in pub[reference]:
                         publication['co_referencing_works'] = merge_and_deduplicate(
+                            publication['co_referencing_works'], pub[reference])
+        publication['count_co_referencing'] = len(publication['co_referencing_works'])
+    else:
+        for publication in base_publications_unique:
+            for pub in reference_publications_unique:
+                    if reference in pub and publication['id'] in pub[reference]:
+                        publication['co_referenced_works'] = merge_and_deduplicate(
                             publication['co_referenced_works'], pub[reference])
+        publication['count_co_referenced'] = len(publication['co_referenced_works'])
 
     return base_publications_unique
 
@@ -417,7 +424,9 @@ base_publications_unique = assign_co_reference(base_publications_unique, referen
 enrichment_publications(base_publications_unique, referencing_publications_unique, combined_publications_unique, 'referencing_works')
 enrichment_publications(base_publications_unique, referenced_publications_unique, combined_publications_unique, 'referenced_works')
 enrichment_publications(base_publications_unique, reference_publications_unique, combined_publications_unique, 'reference_works')
+enrichment_publications(base_publications_unique, co_referenced_publications_unique, combined_publications_unique, 'co_referenced_works')
+enrichment_publications(base_publications_unique, co_referencing_publications_unique, combined_publications_unique, 'co_referencing_works')
 #save_to_json("publications.json", solr_ready(base_publications_unique))
-
 #print(f"Anzahl der all unique publications: {len(all_publications_unique)}")
-
+summe_referenced_work_Count = sum(item.get('cited_by_count', 0) for item in referenced_publications_unique)
+print("Die Summe der 'cited_by_count' ist:", summe_referenced_work_Count)
