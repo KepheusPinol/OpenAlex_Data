@@ -1,4 +1,6 @@
 # %%
+import difflib
+
 import nltk
 import pyalex
 from pyalex import Works, config
@@ -45,13 +47,15 @@ def bearbeitung_metadaten(pager, base_publications_unique):
                 ref_id.replace("https://openalex.org/", "")
                 for ref_id in publication.get('referenced_works', [])
             ]
-
-            base_publications_unique.append({
-                'id': publication['id'], 'title': publication['title'], 'authorships': publication['authorships'],
-                'abstract': publication["abstract"] or "",
-                'referenced_works_count': publication['referenced_works_count'], 'referenced_works': referenced_works_id,
-                'cited_by_count': publication['cited_by_count'],
-            })
+            if publication['cited_by_count'] < 2000:
+                base_publications_unique.append({
+                    'id': publication['id'], 'title': publication['title'], 'authorships': publication['authorships'],
+                    'abstract': publication["abstract"] or "",
+                    'referenced_works_count': publication['referenced_works_count'], 'referenced_works': referenced_works_id,
+                    'cited_by_count': publication['cited_by_count'], 'referencing_works': [],
+                    'reference_works': [],
+                    'co_referenced_works': [], 'co_referencing_works': [], 'co_reference_works': []
+                })
 
     return base_publications_unique
 
@@ -282,9 +286,24 @@ def combine_dictionaries(dict1, dict2):
 def exclude_dict(dict1,dict2):
     return {key:value for key, value in dict1.items() if key not in dict2}
 
+def assign_co_reference(base_publications_unique, referenced_publications_unique, reference):
+    for publication in base_publications_unique:
+        for pub in referenced_publications_unique:
+            if reference == 'referenced_works':
+                if reference in pub and publication['id'] in pub[reference]:
+                    publication['co_referencing_works'] = merge_and_deduplicate(
+                        publication['co_referencing_works'], pub[reference])
+            else:
+                if reference == 'referencing_works':
+                    if reference in pub and publication['id'] in pub[reference]:
+                        publication['co_referencing_works'] = merge_and_deduplicate(
+                            publication['co_referenced_works'], pub[reference])
+
+    return base_publications_unique
+
 def enrichment_publications(base_publications_unique, reference_publications_unique, combined_publications_unique, reference):
     """
-    Jede Ausgangspublikation in all_items wird ergänzt um Terme aus den referenzierten bzw. referenzierenden 
+    Jede Ausgangspublikation in base_publications_unique wird ergänzt um Terme aus den referenzierten bzw. referenzierenden
     Publikationen der jeweiligen Ausgangspublikation. Dabei werden nur Terme übernommen, die noch nicht in der Ausgangspublikation
     enthalten sind.
     """
@@ -350,9 +369,9 @@ def solr_ready (base_publications_unique):
 
 
 # Hauptprogrammfluss
-pager = Works().filter(primary_topic={"id": "T13616"}).select(["id", "title", "authorships", "referenced_works", "abstract_inverted_index","referenced_works_count", "cited_by_count"])
+#pager = Works().filter(primary_topic={"id": "T13616"}).select(["id", "title", "authorships", "referenced_works", "abstract_inverted_index","referenced_works_count", "cited_by_count"])
 
-#pager = Works().filter(ids={"openalex": "W2053522485"}).select(["id", "title", "authorships", "referenced_works", "abstract_inverted_index", "cited_by_count","referenced_works_count"])
+pager = Works().filter(ids={"openalex": "W2053522485"}).select(["id", "title", "authorships", "referenced_works", "abstract_inverted_index", "cited_by_count","referenced_works_count"])
 
 # referencing_publications_complete enthält die Metadaten aller zitierenden Publikationen in der Häufigkeit mit der sie die Ausgangspublikationen zitieren
 referencing_publications_complete = []
@@ -378,22 +397,26 @@ co_referencing_publications_unique = get_referenced_works(referencing_publicatio
 #Zusammenführung der Terme von Titel und Abstrakt jeder Publikation in dem neuen Feld 'kombinierte Terme Titel und Abstract'.
 #Vorkommenshäufigkeit der Terme, Entfernen von Mehrfacheinträgen von Termen, lowercasing, Reduktion auf den Wortstamm, entfernen von Zahlen und Termen bestehend aus weniger als 3 Zeichen
 
-#term_normalisation(referenced_publications_unique, "referenced_publications_unique.json")
-#term_normalisation(referencing_publications_unique, "referencing_publications_unique.json")
-#term_normalisation(base_publications_unique, "publications.json")
+term_normalisation(referenced_publications_unique, "referenced_publications_unique.json")
+term_normalisation(referencing_publications_unique, "referencing_publications_unique.json")
+term_normalisation(base_publications_unique, "publications.json")
+term_normalisation(co_referenced_publications_unique, "co_referenced_publications_unique.json")
+term_normalisation(co_referencing_publications_unique, "co_referencing_publications_unique.json")
 
 # Zusammenführung aller Publikationen (Ausgangspublikationen, zitierte und zitierende Publikationen) zur Berechnung der Document Frequency der einzelnen Terme
-#combined_publications_unique = collect_all_publications([base_publications_unique, referenced_publications_unique, referencing_publications_unique])
-#reference_publications_unique = collect_all_publications([referenced_publications_unique, referencing_publications_unique])
+combined_publications_unique = collect_all_publications([base_publications_unique, referenced_publications_unique, referencing_publications_unique, co_referenced_publications_unique, co_referencing_publications_unique])
+reference_publications_unique = collect_all_publications([referenced_publications_unique, referencing_publications_unique, co_referenced_publications_unique, co_referencing_publications_unique])
 
 #num_documents = len(combined_publications_unique)
 
 #combined_publications_reference_unique = collect_all_publications([referenced_publications_unique, referencing_publications_unique])
 
 #Anreicherung der Ausgangspublikationen mit den jeweils 10 Termen mit den höchsten idf Werten
-#enrichment_publications(base_publications_unique, referencing_publications_unique, combined_publications_unique, 'referencing_works')
-#enrichment_publications(base_publications_unique, referenced_publications_unique, combined_publications_unique, 'referenced_works')
-#enrichment_publications(base_publications_unique, reference_publications_unique, combined_publications_unique, 'reference_works')
+base_publications_unique = assign_co_reference(base_publications_unique, referenced_publications_unique, 'referencing_works')
+base_publications_unique = assign_co_reference(base_publications_unique, referencing_publications_unique, 'referenced_works')
+enrichment_publications(base_publications_unique, referencing_publications_unique, combined_publications_unique, 'referencing_works')
+enrichment_publications(base_publications_unique, referenced_publications_unique, combined_publications_unique, 'referenced_works')
+enrichment_publications(base_publications_unique, reference_publications_unique, combined_publications_unique, 'reference_works')
 #save_to_json("publications.json", solr_ready(base_publications_unique))
 
 #print(f"Anzahl der all unique publications: {len(all_publications_unique)}")
