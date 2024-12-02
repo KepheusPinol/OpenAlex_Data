@@ -47,8 +47,8 @@ def bearbeitung_metadaten(pager, base_publications_unique):
                 ref_id.replace("https://openalex.org/", "")
                 for ref_id in publication.get('referenced_works', [])
             ]
-            if publication['cited_by_count'] < 200:
-                base_publications_unique.append({
+            #if publication['cited_by_count'] < 2000 :
+            base_publications_unique.append({
                     'id': publication['id'], 'title': publication['title'], 'authorships': publication['authorships'],
                     'abstract': publication["abstract"] or "",
                     'referenced_works_count': publication['referenced_works_count'], 'referenced_works': referenced_works_id,
@@ -371,12 +371,26 @@ def solr_ready (base_publications_unique):
 
     return filtered_publications
 
+def consistency_check(base_publications_unique, referenced_publications_unique, referencing_publications_unique, co_referenced_publications_unique, co_referencing_publications_unique):
+    print("Die Summe der 'referenced_works_count' in base_publications_unique ist:", sum(item.get('referenced_works_count', 0) for item in base_publications_unique))
+    print("Die Anzahl der Elemente in referenced_publications_unique ist:", len(referenced_publications_unique))
 
+    print("Die Summe der 'cited_by_count' in base_publications_unique ist:", sum(item.get('cited_by_count', 0) for item in base_publications_unique))
+    print("Die Anzahl der Elemente in referencing_publications_unique ist:", len(referencing_publications_unique))
+
+    print("Die Summe der 'count_co_referencing' in base_publications_unique ist:", sum(item.get('count_co_referencing', 0) for item in base_publications_unique))
+    print("Die Summe der 'referenced_works_count' in referencing_publications_unique ist:", sum(item.get('referenced_works_count', 0) for item in referencing_publications_unique))
+    print("Die Anzahl der Elemente in co_referencing_publications_unique ist:", len(co_referencing_publications_unique))
+
+    print("Die Summe der 'count_co_referenced' in base_publications_unique ist:", sum(item.get('count_co_referenced', 0) for item in base_publications_unique))
+    print("Die Summe der 'cited_by_count' in referenced_publications_unique ist:", sum(item.get('cited_by_count', 0) for item in referenced_publications_unique))
+    print("Die Anzahl der Elemente in co_referenced_publications_unique ist:", len(co_referenced_publications_unique))
 
 # Hauptprogrammfluss
 #pager = Works().filter(primary_topic={"subfield.id": "subfields/3309"}).select(["id", "title", "authorships", "referenced_works", "abstract_inverted_index","referenced_works_count", "cited_by_count"])
+pager = Works().filter(primary_topic={"id": "t10286"}).select(["id", "title", "authorships", "referenced_works", "abstract_inverted_index","referenced_works_count", "cited_by_count"])
 
-pager = Works().filter(ids={"openalex": "W2053522485"}).select(["id", "title", "authorships", "referenced_works", "abstract_inverted_index", "cited_by_count","referenced_works_count"])
+#pager = Works().filter(ids={"openalex": "W2053522485"}).select(["id", "title", "authorships", "referenced_works", "abstract_inverted_index", "cited_by_count","referenced_works_count"])
 
 # referencing_publications_complete enthält die Metadaten aller zitierenden Publikationen in der Häufigkeit mit der sie die Ausgangspublikationen zitieren
 referencing_publications_complete = []
@@ -412,10 +426,6 @@ term_normalisation(co_referencing_publications_unique, "co_referencing_publicati
 combined_publications_unique = collect_all_publications([base_publications_unique, referenced_publications_unique, referencing_publications_unique, co_referenced_publications_unique, co_referencing_publications_unique])
 reference_publications_unique = collect_all_publications([referenced_publications_unique, referencing_publications_unique, co_referenced_publications_unique, co_referencing_publications_unique])
 
-#num_documents = len(combined_publications_unique)
-
-#combined_publications_reference_unique = collect_all_publications([referenced_publications_unique, referencing_publications_unique])
-
 #Anreicherung der Ausgangspublikationen mit den jeweils 10 Termen mit den höchsten idf Werten
 base_publications_unique = assign_co_reference(base_publications_unique, referenced_publications_unique, 'referencing_works')
 base_publications_unique = assign_co_reference(base_publications_unique, referencing_publications_unique, 'referenced_works')
@@ -424,5 +434,6 @@ enrichment_publications(base_publications_unique, referenced_publications_unique
 enrichment_publications(base_publications_unique, reference_publications_unique, combined_publications_unique, 'reference_works')
 enrichment_publications(base_publications_unique, co_referenced_publications_unique, combined_publications_unique, 'co_referenced_works')
 enrichment_publications(base_publications_unique, co_referencing_publications_unique, combined_publications_unique, 'co_referencing_works')
+consistency_check(base_publications_unique, referenced_publications_unique, referencing_publications_unique, co_referenced_publications_unique, co_referencing_publications_unique)
 save_to_json("publications.json", solr_ready(base_publications_unique))
 
