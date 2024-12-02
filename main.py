@@ -81,7 +81,6 @@ def get_referenced_works(base_publications_unique, filename):
 
     for publication in base_publications_unique:
         referenced_publications_unique_ids = merge_and_deduplicate(referenced_publications_unique_ids, publication['referenced_works'])
-    print(len(referenced_publications_unique_ids))
     pager_referenced = build_pager(referenced_publications_unique_ids)
     for pager in pager_referenced:
         referenced_publications_unique = bearbeitung_metadaten(pager, referenced_publications_unique)
@@ -127,7 +126,6 @@ def get_referencing_works(base_publications_unique, filename):
         publication['referencing_works'] = referencing_publications_ids
         publication['reference_works'] = merge_and_deduplicate(publication['referenced_works'], publication['referencing_works'])
         publication['count_reference'] = len(publication['reference_works'])
-
 
     referencing_publications_unique.sort(key=lambda x: x.get('id', 0), reverse=True)
     save_to_json(filename, referencing_publications_unique)
@@ -364,7 +362,7 @@ def merge_and_deduplicate(list1, list2):
 def solr_ready (base_publications_unique):
     # Behalten nur der benötigten Felder
     necessary_fields = ["id", "title", "authorships", "abstract", "kombinierte Terme referenced_works", "kombinierte Terme referencing_works",
-                        "kombinierte Terme reference_works"]
+                        "kombinierte Terme reference_works", "kombinierte Terme co_referenced_works", "kombinierte Terme co_referencing_works",]
     filtered_publications = []
 
     for publication in base_publications_unique:
@@ -376,7 +374,7 @@ def solr_ready (base_publications_unique):
 
 
 # Hauptprogrammfluss
-#pager = Works().filter(primary_topic={"id": "T13616"}).select(["id", "title", "authorships", "referenced_works", "abstract_inverted_index","referenced_works_count", "cited_by_count"])
+#pager = Works().filter(primary_topic={"subfield.id": "subfields/3309"}).select(["id", "title", "authorships", "referenced_works", "abstract_inverted_index","referenced_works_count", "cited_by_count"])
 
 pager = Works().filter(ids={"openalex": "W2053522485"}).select(["id", "title", "authorships", "referenced_works", "abstract_inverted_index", "cited_by_count","referenced_works_count"])
 
@@ -426,7 +424,5 @@ enrichment_publications(base_publications_unique, referenced_publications_unique
 enrichment_publications(base_publications_unique, reference_publications_unique, combined_publications_unique, 'reference_works')
 enrichment_publications(base_publications_unique, co_referenced_publications_unique, combined_publications_unique, 'co_referenced_works')
 enrichment_publications(base_publications_unique, co_referencing_publications_unique, combined_publications_unique, 'co_referencing_works')
-#save_to_json("publications.json", solr_ready(base_publications_unique))
-#print(f"Anzahl der all unique publications: {len(all_publications_unique)}")
-summe_referenced_work_Count = sum(item.get('cited_by_count', 0) for item in referenced_publications_unique)
-print("Die Summe der 'cited_by_count' ist:", summe_referenced_work_Count)
+save_to_json("publications.json", solr_ready(base_publications_unique))
+
