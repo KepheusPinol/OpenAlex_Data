@@ -120,7 +120,6 @@ def build_pager(list_ids):
 
 def get_referencing_works(base_publications_unique, filename, filename_base):
     referencing_pub_unique = []
-    all_referecing_publications_ids = []
 
     for publication in base_publications_unique:
         referencing_publications = []
@@ -128,7 +127,6 @@ def get_referencing_works(base_publications_unique, filename, filename_base):
         referencing_pub_unique = bearbeitung_metadaten(pager_referencing, referencing_pub_unique)
         referencing_publications = bearbeitung_metadaten(pager_referencing, referencing_publications)
         referencing_publications_ids = [pub['id'] for pub in referencing_publications]
-        all_referecing_publications_ids = merge_and_deduplicate(all_referecing_publications_ids, referencing_publications_ids)
 
         publication['referencing_works'] = referencing_publications_ids
         publication['reference_works'] = merge_and_deduplicate(publication['referenced_works'], publication['referencing_works'])
@@ -274,14 +272,15 @@ def load_from_json(filename):
         data = json.load(f)
     return data
 
-def combine_dictionaries(dict1, dict2):
-    ''' Kombiniert zwei Dicts, wobei Werte für identische Schlüssel summiert werden '''
-    combined = dict1.copy()
-    for k, v in dict2.items():
-        if k in combined:
-            combined[k] += v  # oder eine andere Geschäftslogik zur Kombination der Werte
-        else:
-            combined[k] = v
+def combine_dictionaries(*dicts):
+    ''' Kombiniert mehrere Dicts, wobei Werte für identische Schlüssel summiert werden '''
+    combined = {}
+    for dictionary in dicts:
+        for k, v in dictionary.items():
+            if k in combined:
+                combined[k] += v  # oder eine andere Geschäftslogik zur Kombination der Werte
+            else:
+                combined[k] = v
     return combined
 
 def exclude_dict(dict1,dict2):
@@ -313,8 +312,8 @@ def enrichment_publications(base_pub_unique, reference_pub_unique, reference):
     """
     # Convert referenced_works list to a dictionary for quick lookup
     reference_publications_dict = {publication['id']: publication['kombinierte Terme Titel und Abstract'] for publication in reference_pub_unique}
-    #co_referenced_publications_dict = {publication['id']: publication['kombinierte Terme referencing_works'] for publication in reference_publications_unique}
-    #co_referencing_publications_dict = {publication['id']: publication['kombinierte Terme referenced_works'] for publication in reference_publications_unique}
+    co_referenced_publications_dict = {publication['id']: publication['kombinierte Terme referencing_works'] for publication in reference_pub_unique}
+    co_referencing_publications_dict = {publication['id']: publication['kombinierte Terme referenced_works'] for publication in reference_pub_unique}
     #co_reference_publications_dict = combine_dictionaries(co_referenced_publications_dict, co_referencing_publications_dict)
 
     # Enrich each item in all_items
@@ -324,15 +323,15 @@ def enrichment_publications(base_pub_unique, reference_pub_unique, reference):
         for id_ref in item[reference]:
             if id_ref in reference_publications_dict:
                 # Add the 'kombinierte Terme' from the referenced publication
-                termset = reference_publications_dict[id_ref]
-                combined_terms_referencing = combine_dictionaries(combined_terms_referencing, termset)
+                combined_terms_referencing = combine_dictionaries(combined_terms_referencing, reference_publications_dict[id_ref], co_referencing_publications_dict[id_ref], co_referenced_publications_dict[id_ref])
             else:
                 print(f"Key {id_ref} does not exist in reference_publications_dict")
 
-                # combined_terms_referencing = combine_dictionaries(combined_terms_referencing, co_reference_publications_dict[id_ref])
         # Aggregate terms and store in the item
         combined_terms_referencing_excl = exclude_dict(combined_terms_referencing, termset_item)
-        item['kombinierte Terme ' + reference] = combined_terms_referencing_excl
+        sorted_terms = sorted(combined_terms_referencing_excl.items(), key=lambda x: x[1], reverse=True)
+        item['kombinierte Terme ' + reference] = sorted_terms
+        #item['Anzahl kombinierte Terme ' + reference] = len(sorted_terms)
 
     return base_pub_unique
 
@@ -445,7 +444,7 @@ referencing_publications_unique = enrichment_publications(referencing_publicatio
 referenced_publications_unique = enrichment_publications(referenced_publications_unique, co_referencing_publications_unique, 'referencing_works')
 base_publications_unique = enrichment_publications(base_publications_unique, referenced_publications_unique, 'referenced_works')
 base_publications_unique = enrichment_publications(base_publications_unique, referencing_publications_unique, 'referencing_works')
-base_publications_unique = enrichment_publications(base_publications_unique, reference_publications_unique, 'reference_works')
+#base_publications_unique = enrichment_publications(base_publications_unique, combined_publications_unique, 'reference_works')
 
 save_to_json("referencing_publications_unique.json", referencing_publications_unique)
 save_to_json("referenced_publications_unique.json", referenced_publications_unique)
