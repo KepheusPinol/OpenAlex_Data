@@ -34,16 +34,13 @@ def setup_pyalex():
     config.retry_http_codes = RETRY_HTTP_CODES
 
 def bearbeitung_metadaten(pager, base_publications_unique):
-    ### del below
-
-    ### del above
 
     for page in chain(pager.paginate(per_page=200, n_max=None)):
         for publication in page:
 
             publication['id'] = publication['id'].replace("https://openalex.org/", "")
             if any(item['id'] == publication['id'] for item in base_publications_unique):
-                break
+                continue
             author_display_names = [authorship["author"]["display_name"] for authorship in publication["authorships"]]
             publication['authorships'] = author_display_names
             publication['abstract'] = publication["abstract"] or ""
@@ -123,6 +120,7 @@ def build_pager(list_ids):
 
 def get_referencing_works(base_publications_unique, filename, filename_base):
     referencing_pub_unique = []
+    all_referecing_publications_ids = []
 
     for publication in base_publications_unique:
         referencing_publications = []
@@ -130,6 +128,7 @@ def get_referencing_works(base_publications_unique, filename, filename_base):
         referencing_pub_unique = bearbeitung_metadaten(pager_referencing, referencing_pub_unique)
         referencing_publications = bearbeitung_metadaten(pager_referencing, referencing_publications)
         referencing_publications_ids = [pub['id'] for pub in referencing_publications]
+        all_referecing_publications_ids = merge_and_deduplicate(all_referecing_publications_ids, referencing_publications_ids)
 
         publication['referencing_works'] = referencing_publications_ids
         publication['reference_works'] = merge_and_deduplicate(publication['referenced_works'], publication['referencing_works'])
@@ -410,9 +409,9 @@ def consistency_check(base_pub_unique, referenced_pub_unique, referencing_pub_un
 
     set_a = set(unique_referencing_pub_referenced)
     set_b = set(item['id'] for item in co_referencing_pub_unique)
-
-    print("test")
-
+    diff_set = set_a-set_b
+    print('different:')
+    print(diff_set)
 
 # Hauptprogrammfluss
 #pager = Works().filter(primary_topic={"subfield.id": "subfields/3309"}).select(["id", "title", "authorships", "referenced_works", "abstract_inverted_index","referenced_works_count", "cited_by_count"])
@@ -422,7 +421,7 @@ pager = Works().filter(ids={"openalex": "W2053522485"}).select(["id", "title", "
 
 # Hauptprogramm
 #Abruf der Metadaten Ausgangspublikation, zitierte und zitierende Publikationen
-
+'''
 base_publications_unique = get_by_api(pager, "raw_base_publications.json")
 referenced_publications_unique = get_referenced_works(base_publications_unique, "raw_referenced_publications_unique.json")
 referencing_publications_unique = get_referencing_works(base_publications_unique, "raw_referencing_publications_unique.json", "raw_base_publications.json")
@@ -435,7 +434,7 @@ reference_publications_unique = collect_all_publications([referenced_publication
 
 #combined_publications_unique = collect_all_publications([base_publications_unique, referenced_publications_unique, referencing_publications_unique])
 #reference_publications_unique = collect_all_publications([referenced_publications_unique, referencing_publications_unique])
-
+'''
 base_publications_unique = load_from_json("raw_base_publications.json")
 referenced_publications_unique = load_from_json("raw_referenced_publications_unique.json")
 referencing_publications_unique = load_from_json("raw_referencing_publications_unique.json")
@@ -445,7 +444,7 @@ combined_publications_unique = load_from_json("raw_combined_publications_unique.
 reference_publications_unique = load_from_json("raw_reference_publications_unique.json")
 
 consistency_check(base_publications_unique, referenced_publications_unique, referencing_publications_unique, co_referenced_publications_unique, co_referencing_publications_unique)
-'''
+
 #Anreicherung der Ausgangspublikationen 
 base_publications_unique = assign_co_reference(base_publications_unique, referenced_publications_unique, 'referencing_works')
 base_publications_unique = assign_co_reference(base_publications_unique, referencing_publications_unique, 'referenced_works')
@@ -463,4 +462,4 @@ save_to_json("base_publications_unique.json", base_publications_unique)
 
 #enrichment_publications(base_publications_unique, co_referencing_publications_unique, 'co_referencing_works')
 #save_to_json("publications.json", solr_ready(base_publications_unique))
-'''
+
