@@ -34,8 +34,13 @@ def setup_pyalex():
     config.retry_http_codes = RETRY_HTTP_CODES
 
 def bearbeitung_metadaten(pager, base_publications_unique):
+    ### del below
+
+    ### del above
+
     for page in chain(pager.paginate(per_page=200, n_max=None)):
         for publication in page:
+
             publication['id'] = publication['id'].replace("https://openalex.org/", "")
             if any(item['id'] == publication['id'] for item in base_publications_unique):
                 break
@@ -382,19 +387,32 @@ def consistency_check(base_pub_unique, referenced_pub_unique, referencing_pub_un
         unique_referencing_pub_referenced = merge_and_deduplicate(unique_referencing_pub_referenced, item['referencing_works'])
 
     print("Die Summe der 'referenced_works_count' in base_publications_unique ist:", sum(item.get('referenced_works_count', 0) for item in base_pub_unique))
-    print("Die Anzahl der Elemente in referenced_publications_unique ist:", len(referenced_pub_unique))
+    print("Die Anzahl der Elemente in referenced_publications_unique ist:", len(referenced_pub_unique), "\n")
 
     print("Die Summe der 'cited_by_count' in base_publications_unique ist:", sum(item.get('cited_by_count', 0) for item in base_pub_unique))
     print("Die Anzahl der uniquen referencing publications in base_publications_unique ist: ", len(unique_referencing_pub_base))
-    print("Die Anzahl der Elemente in referencing_publications_unique ist:", len(referencing_pub_unique))
+    print("Die Anzahl der Elemente in referencing_publications_unique ist:", len(referencing_pub_unique), "\n")
 
     print("Die Summe der 'referenced_works_count' in referencing_publications_unique ist:", sum(item.get('referenced_works_count', 0) for item in referencing_pub_unique))
     print("Die Anzahl der uniquen referenced publications in referencing_publications_unique ist: ", len(unique_referenced_pub_referencing))
-    print("Die Anzahl der Elemente in co_referencing_publications_unique ist:", len(co_referencing_pub_unique))
+    print("Die Anzahl der Elemente in co_referenced_publications_unique ist:", len(co_referenced_pub_unique), "\n")
+    # differences
+    set_a = set(unique_referenced_pub_referencing)
+    set_b = set(item['id'] for item in co_referenced_pub_unique)
+    diff_set = set_a-set_b
+    print('different:')
+    print(diff_set)
+
 
     print("Die Summe der 'cited_by_count' in referenced_publications_unique ist:", sum(item.get('cited_by_count', 0) for item in referenced_pub_unique))
     print("Die Anzahl der uniquen referencing publications in referenced_publications_unique ist: ", len(unique_referencing_pub_referenced))
-    print("Die Anzahl der Elemente in co_referenced_publications_unique ist:", len(co_referenced_pub_unique))
+    print("Die Anzahl der Elemente in co_referencing_publications_unique ist:", len(co_referencing_pub_unique), "\n")
+
+    set_a = set(unique_referencing_pub_referenced)
+    set_b = set(item['id'] for item in co_referencing_pub_unique)
+
+    print("test")
+
 
 # Hauptprogrammfluss
 #pager = Works().filter(primary_topic={"subfield.id": "subfields/3309"}).select(["id", "title", "authorships", "referenced_works", "abstract_inverted_index","referenced_works_count", "cited_by_count"])
@@ -408,8 +426,8 @@ pager = Works().filter(ids={"openalex": "W2053522485"}).select(["id", "title", "
 base_publications_unique = get_by_api(pager, "raw_base_publications.json")
 referenced_publications_unique = get_referenced_works(base_publications_unique, "raw_referenced_publications_unique.json")
 referencing_publications_unique = get_referencing_works(base_publications_unique, "raw_referencing_publications_unique.json", "raw_base_publications.json")
-co_referenced_publications_unique = get_referencing_works(referenced_publications_unique, "raw_co_referenced_publications_unique.json", "raw_referenced_publications_unique.json")
-co_referencing_publications_unique = get_referenced_works(referencing_publications_unique, "raw_co_referencing_publications_unique.json")
+co_referencing_publications_unique = get_referencing_works(referenced_publications_unique, "raw_co_referencing_publications_unique.json", "raw_referenced_publications_unique.json")
+co_referenced_publications_unique = get_referenced_works(referencing_publications_unique, "raw_co_referenced_publications_unique.json")
 
 # Zusammenführung aller Publikationen (Ausgangspublikationen, zitierte und zitierende Publikationen) zur Berechnung der Document Frequency der einzelnen Terme
 combined_publications_unique = collect_all_publications([base_publications_unique, referenced_publications_unique, referencing_publications_unique, co_referenced_publications_unique, co_referencing_publications_unique], "raw_combined_publications_unique.json")
