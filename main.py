@@ -313,7 +313,6 @@ def enrichment_publications(base_pub_unique, reference_pub_unique, reference):
     """
     # Convert referenced_works list to a dictionary for quick lookup
     reference_publications_dict = {publication['id']: publication['kombinierte Terme Titel und Abstract'] for publication in reference_pub_unique}
-    print(reference_publications_dict)
     #co_referenced_publications_dict = {publication['id']: publication['kombinierte Terme referencing_works'] for publication in reference_publications_unique}
     #co_referencing_publications_dict = {publication['id']: publication['kombinierte Terme referenced_works'] for publication in reference_publications_unique}
     #co_reference_publications_dict = combine_dictionaries(co_referenced_publications_dict, co_referencing_publications_dict)
@@ -321,18 +320,12 @@ def enrichment_publications(base_pub_unique, reference_pub_unique, reference):
     # Enrich each item in all_items
     for item in base_pub_unique:
         termset_item = item['kombinierte Terme Titel und Abstract']
-        #print("termset_item", termset_item)
-
         combined_terms_referencing = {}
         for id_ref in item[reference]:
-            print("item reference:", item[reference])
-            print("id_ref", id_ref)
             if id_ref in reference_publications_dict:
                 # Add the 'kombinierte Terme' from the referenced publication
                 termset = reference_publications_dict[id_ref]
-                combined_terms_referencing = dict(sorted(combine_dictionaries(combined_terms_referencing, termset)))
-
-                print("Termset:", termset)
+                combined_terms_referencing = combine_dictionaries(combined_terms_referencing, termset)
             else:
                 print(f"Key {id_ref} does not exist in reference_publications_dict")
 
@@ -416,10 +409,8 @@ def consistency_check(base_pub_unique, referenced_pub_unique, referencing_pub_un
 # Hauptprogrammfluss
 #pager = Works().filter(primary_topic={"subfield.id": "subfields/3309"}).select(["id", "title", "authorships", "referenced_works", "abstract_inverted_index","referenced_works_count", "cited_by_count"])
 #pager = Works().filter(primary_topic={"id": "t10286"}).select(["id", "title", "authorships", "referenced_works", "abstract_inverted_index","referenced_works_count", "cited_by_count"])
-
 pager = Works().filter(ids={"openalex": "W2053522485"}).select(["id", "title", "authorships", "referenced_works", "abstract_inverted_index", "cited_by_count","referenced_works_count"])
 
-# Hauptprogramm
 #Abruf der Metadaten Ausgangspublikation, zitierte und zitierende Publikationen
 '''
 base_publications_unique = get_by_api(pager, "raw_base_publications.json")
@@ -434,7 +425,11 @@ reference_publications_unique = collect_all_publications([referenced_publication
 
 #combined_publications_unique = collect_all_publications([base_publications_unique, referenced_publications_unique, referencing_publications_unique])
 #reference_publications_unique = collect_all_publications([referenced_publications_unique, referencing_publications_unique])
+
+consistency_check(base_publications_unique, referenced_publications_unique, referencing_publications_unique, co_referenced_publications_unique, co_referencing_publications_unique)
+
 '''
+# Speicherung der nicht-angereicherten Metadaten
 base_publications_unique = load_from_json("raw_base_publications.json")
 referenced_publications_unique = load_from_json("raw_referenced_publications_unique.json")
 referencing_publications_unique = load_from_json("raw_referencing_publications_unique.json")
@@ -443,11 +438,9 @@ co_referencing_publications_unique = load_from_json("raw_co_referencing_publicat
 combined_publications_unique = load_from_json("raw_combined_publications_unique.json")
 reference_publications_unique = load_from_json("raw_reference_publications_unique.json")
 
-consistency_check(base_publications_unique, referenced_publications_unique, referencing_publications_unique, co_referenced_publications_unique, co_referencing_publications_unique)
-
 #Anreicherung der Ausgangspublikationen 
-base_publications_unique = assign_co_reference(base_publications_unique, referenced_publications_unique, 'referencing_works')
-base_publications_unique = assign_co_reference(base_publications_unique, referencing_publications_unique, 'referenced_works')
+#base_publications_unique = assign_co_reference(base_publications_unique, referenced_publications_unique, 'referencing_works')
+#base_publications_unique = assign_co_reference(base_publications_unique, referencing_publications_unique, 'referenced_works')
 referencing_publications_unique = enrichment_publications(referencing_publications_unique, co_referenced_publications_unique, 'referenced_works')
 referenced_publications_unique = enrichment_publications(referenced_publications_unique, co_referencing_publications_unique, 'referencing_works')
 base_publications_unique = enrichment_publications(base_publications_unique, referenced_publications_unique, 'referenced_works')
