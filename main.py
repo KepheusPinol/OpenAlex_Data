@@ -194,7 +194,7 @@ def normalize_text(text):
     text = re.sub(r'[^\w\s\-@]', '', text)
 
     # Zahlen und Terme mit weniger als 3 Zeichen entfernen
-    text = ' '.join([word for word in text.split() if len(word) >= 3 or not word.isdigit()])
+    text = ' '.join([word for word in text.split() if len(word) >= 3 and not word.isdigit()])
 
     # Wörter splitten, Stopwörter entfernen und stemmen
     words = text.split()
@@ -217,9 +217,7 @@ def initialize_term_dict(terms):
 
     # Begriffe zählen
     for term in terms:
-        if term in term_count_dict:
-            term_count_dict[term] += 1
-        else:
+        if term not in term_count_dict:
             term_count_dict[term] = 1
 
     return term_count_dict
@@ -240,14 +238,14 @@ def document_frequency(publications_unique):
             publication['kombinierte Terme referenced_works']
         ).keys()) for publication in publications_unique}
 
-    for publicaton in publications_unique_dict:
-        for term in publicaton:
+    for publication_id, terms in publications_unique_dict.items():
+        for term in terms:
             if term not in document_frequency_dict:
                 document_frequency_dict[term] = 1
             else:
                 document_frequency_dict[term] += 1
 
-    sorted_df = sorted(document_frequency_dict.items(), key=lambda item: item[0])
+    sorted_df = dict(sorted(document_frequency_dict.items(), key=lambda item: item[0]))
     save_to_json('document_frequency.json', sorted_df)
 
     return document_frequency_dict
