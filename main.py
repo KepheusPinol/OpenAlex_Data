@@ -33,7 +33,7 @@ def setup_pyalex():
     config.retry_backoff_factor = 0.1
     config.retry_http_codes = RETRY_HTTP_CODES
 
-def bearbeitung_metadaten(pager, base_publications_unique):
+def extract_publication_data(pager, base_publications_unique):
 
     for page in chain(pager.paginate(per_page=200, n_max=None)):
         for publication in page:
@@ -50,13 +50,10 @@ def bearbeitung_metadaten(pager, base_publications_unique):
                 for ref_id in publication.get('referenced_works', [])
             ]
 
-            term_dict = initialize_term_dict(normalize_text(f"{publication['title']} {publication['abstract']}"))
-            sorted_term_dict = dict(sorted(term_dict.items()))
-
             #if publication['cited_by_count'] < 2000 :
             base_publications_unique.append({
                     'id': publication['id'], 'title': publication['title'], 'authorships': publication['authorships'],
-                    'abstract': publication["abstract"] or "", 'kombinierte Terme Titel und Abstract' : sorted_term_dict,
+                    'abstract': publication["abstract"] or "", 'language': publication['language'], 'kombinierte Terme Titel und Abstract' : {},
             'referenced_works_count': publication['referenced_works_count'], 'referenced_works': referenced_works_id,
                     'cited_by_count': publication['cited_by_count'], 'referencing_works': [], 'kombinierte Terme referencing_works' : {},
                     'count_reference': "", 'reference_works': [], 'kombinierte Terme referenced_works' : {},
@@ -69,7 +66,7 @@ def bearbeitung_metadaten(pager, base_publications_unique):
 
 def get_by_api(pager, filename):
     # all_publications_unique enthält einmalig die Metadaten aller Ausgangspublikationen
-    base_publications_unique = bearbeitung_metadaten(pager, [])
+    base_publications_unique = extract_publication_data(pager, [])
 
     base_publications_unique.sort(key=lambda x: x.get('id', 0), reverse=True)
     save_to_json(filename, base_publications_unique)
@@ -88,7 +85,7 @@ def get_referenced_works(base_publications_unique, filename):
         referenced_publications_unique_ids = merge_and_deduplicate(referenced_publications_unique_ids, publication['referenced_works'])
     pager_referenced = build_pager(referenced_publications_unique_ids)
     for pager in pager_referenced:
-        unique_referenced_pubs = bearbeitung_metadaten(pager, unique_referenced_pubs)
+        unique_referenced_pubs = extract_publication_data(pager, unique_referenced_pubs)
 
     unique_referenced_pubs.sort(key=lambda x: x.get('id', 0), reverse=True)
 
@@ -110,7 +107,7 @@ def build_pager(list_ids):
         # Erstellen eines pager-Objekts mit den aktuellen IDs
         pager = Works().filter(ids={"openalex": ref_id}).select([
             "id", "title", "authorships", "referenced_works",
-            "abstract_inverted_index", "cited_by_count", "referenced_works_count"])
+            "abstract_inverted_index", "cited_by_count", "referenced_works_count", "language"])
 
         # Hinzufügen des pager-Objekts zur pagers-Liste
         pagers.append(pager)
@@ -123,9 +120,9 @@ def get_referencing_works(base_publications_unique, filename, filename_base):
 
     for publication in base_publications_unique:
         referencing_publications = []
-        pager_referencing = Works().filter(cites=publication['id']).select(["id", "title", "authorships", "referenced_works", "abstract_inverted_index", "cited_by_count","referenced_works_count"])
-        referencing_pub_unique = bearbeitung_metadaten(pager_referencing, referencing_pub_unique)
-        referencing_publications = bearbeitung_metadaten(pager_referencing, referencing_publications)
+        pager_referencing = Works().filter(cites=publication['id']).select(["id", "title", "authorships", "referenced_works", "abstract_inverted_index", "cited_by_count","referenced_works_count","language"])
+        referencing_pub_unique = extract_publication_data(pager_referencing, referencing_pub_unique)
+        referencing_publications = extract_publication_data(pager_referencing, referencing_publications)
         referencing_publications_ids = [pub['id'] for pub in referencing_publications]
 
         publication['referencing_works'] = referencing_publications_ids
@@ -139,6 +136,17 @@ def get_referencing_works(base_publications_unique, filename, filename_base):
     print(f"Anzahl der unique referencing publications: {len(referencing_pub_unique)}")
 
     return referencing_pub_unique
+
+def bearbeitung_metadaten(base_publications_unique):
+    for publication in base_publications_unique:
+        if publication['language'] == 'en':
+            term_dict = initialize_term_dict(normalize_text(f"{publication['title']} {publication['abstract']}"))
+            sorted_term_dict = dict(sorted(term_dict.items()))
+            publication['kombinierte Terme Titel und Abstract'] = sorted_term_dict
+        else:
+            publication['kombinierte Terme Titel und Abstract'] = {}
+
+    return base_publications_unique
 
 
 def get_stopwords_for_language(language):
@@ -167,12 +175,12 @@ def normalize_text(text):
     if text is None:
         text = ""
 
-    try:
+    #try:
         # Erkennung der Sprache des Textes
-        language_code = detect(text)
-        language_name = langcodes.get(language_code).language_name()
-    except LangDetectException:
-        language_name = 'english'  # Standardmäßig Englisch verwenden
+    #    language_code = detect(text)
+    #    language_name = langcodes.get(language_code).language_name()
+    #except LangDetectException:
+    language_name = 'English'  # Standardmäßig Englisch verwenden
 
     # Holen der Stopwords für die erkannte Sprache
     stop_words = get_stopwords_for_language(language_name)
@@ -186,7 +194,7 @@ def normalize_text(text):
     text = re.sub(r'[^\w\s\-@]', '', text)
 
     # Zahlen und Terme mit weniger als 3 Zeichen entfernen
-    text = ' '.join([word for word in text.split() if len(word) >= 3 and not word.isdigit()])
+    text = ' '.join([word for word in text.split() if len(word) >= 3 or not word.isdigit()])
 
     # Wörter splitten, Stopwörter entfernen und stemmen
     words = text.split()
@@ -226,9 +234,14 @@ def document_frequency(publications_unique):
     :return: document_frequency_list:
     """
     document_frequency_dict = {}
+    publications_unique_dict = {publication['id']: list(combine_dictionaries(
+            publication['kombinierte Terme Titel und Abstract'],
+            publication['kombinierte Terme referencing_works'],
+            publication['kombinierte Terme referenced_works']
+        ).keys()) for publication in publications_unique}
 
-    for item in publications_unique:
-        for term in item:
+    for publicaton in publications_unique_dict:
+        for term in publicaton:
             if term not in document_frequency_dict:
                 document_frequency_dict[term] = 1
             else:
@@ -283,6 +296,7 @@ def combine_dictionaries(*dicts):
                 combined[k] = v
     return combined
 
+
 def exclude_dict(dict1,dict2):
     return {key:value for key, value in dict1.items() if key not in dict2}
 
@@ -329,7 +343,7 @@ def enrichment_publications(base_pub_unique, reference_pub_unique, reference):
 
         # Aggregate terms and store in the item
         combined_terms_referencing_excl = exclude_dict(combined_terms_referencing, termset_item)
-        sorted_terms = sorted(combined_terms_referencing_excl.items(), key=lambda x: x[1], reverse=True)
+        sorted_terms = dict(sorted(combined_terms_referencing_excl.items(), key=lambda x: x[1], reverse=True))
         item['kombinierte Terme ' + reference] = sorted_terms
         #item['Anzahl kombinierte Terme ' + reference] = len(sorted_terms)
 
@@ -408,26 +422,23 @@ def consistency_check(base_pub_unique, referenced_pub_unique, referencing_pub_un
 # Hauptprogrammfluss
 #pager = Works().filter(primary_topic={"subfield.id": "subfields/3309"}).select(["id", "title", "authorships", "referenced_works", "abstract_inverted_index","referenced_works_count", "cited_by_count"])
 #pager = Works().filter(primary_topic={"id": "t10286"}).select(["id", "title", "authorships", "referenced_works", "abstract_inverted_index","referenced_works_count", "cited_by_count"])
-pager = Works().filter(ids={"openalex": "W2053522485"}).select(["id", "title", "authorships", "referenced_works", "abstract_inverted_index", "cited_by_count","referenced_works_count"])
+pager = Works().filter(ids={"openalex": "W2053522485"}).select(["id", "title", "authorships", "referenced_works", "abstract_inverted_index", "cited_by_count","referenced_works_count","language"])
 
 #Abruf der Metadaten Ausgangspublikation, zitierte und zitierende Publikationen
-'''
-base_publications_unique = get_by_api(pager, "raw_base_publications.json")
-referenced_publications_unique = get_referenced_works(base_publications_unique, "raw_referenced_publications_unique.json")
-referencing_publications_unique = get_referencing_works(base_publications_unique, "raw_referencing_publications_unique.json", "raw_base_publications.json")
-co_referencing_publications_unique = get_referencing_works(referenced_publications_unique, "raw_co_referencing_publications_unique.json", "raw_referenced_publications_unique.json")
-co_referenced_publications_unique = get_referenced_works(referencing_publications_unique, "raw_co_referenced_publications_unique.json")
+
+#base_publications_unique = get_by_api(pager, "raw_base_publications.json")
+#referenced_publications_unique = get_referenced_works(base_publications_unique, "raw_referenced_publications_unique.json")
+#referencing_publications_unique = get_referencing_works(base_publications_unique, "raw_referencing_publications_unique.json", "raw_base_publications.json")
+#co_referencing_publications_unique = get_referencing_works(referenced_publications_unique, "raw_co_referencing_publications_unique.json", "raw_referenced_publications_unique.json")
+#co_referenced_publications_unique = get_referenced_works(referencing_publications_unique, "raw_co_referenced_publications_unique.json")
 
 # Zusammenführung aller Publikationen (Ausgangspublikationen, zitierte und zitierende Publikationen) zur Berechnung der Document Frequency der einzelnen Terme
-combined_publications_unique = collect_all_publications([base_publications_unique, referenced_publications_unique, referencing_publications_unique, co_referenced_publications_unique, co_referencing_publications_unique], "raw_combined_publications_unique.json")
-reference_publications_unique = collect_all_publications([referenced_publications_unique, referencing_publications_unique, co_referenced_publications_unique, co_referencing_publications_unique], "raw_reference_publications_unique.json")
+#combined_publications_unique = collect_all_publications([base_publications_unique, referenced_publications_unique, referencing_publications_unique, co_referenced_publications_unique, co_referencing_publications_unique], "raw_combined_publications_unique.json")
+#reference_publications_unique = collect_all_publications([referenced_publications_unique, referencing_publications_unique, co_referenced_publications_unique, co_referencing_publications_unique], "raw_reference_publications_unique.json")
 
-#combined_publications_unique = collect_all_publications([base_publications_unique, referenced_publications_unique, referencing_publications_unique])
-#reference_publications_unique = collect_all_publications([referenced_publications_unique, referencing_publications_unique])
+#consistency_check(base_publications_unique, referenced_publications_unique, referencing_publications_unique, co_referenced_publications_unique, co_referencing_publications_unique)
 
-consistency_check(base_publications_unique, referenced_publications_unique, referencing_publications_unique, co_referenced_publications_unique, co_referencing_publications_unique)
 
-'''
 # Speicherung der nicht-angereicherten Metadaten
 base_publications_unique = load_from_json("raw_base_publications.json")
 referenced_publications_unique = load_from_json("raw_referenced_publications_unique.json")
@@ -437,14 +448,23 @@ co_referencing_publications_unique = load_from_json("raw_co_referencing_publicat
 combined_publications_unique = load_from_json("raw_combined_publications_unique.json")
 reference_publications_unique = load_from_json("raw_reference_publications_unique.json")
 
+#bearbeitung Metadaten
+base_publications_unique = bearbeitung_metadaten(base_publications_unique)
+referenced_publications_unique = bearbeitung_metadaten(referenced_publications_unique)
+referencing_publications_unique = bearbeitung_metadaten(referencing_publications_unique)
+co_referenced_publications_unique = bearbeitung_metadaten(co_referenced_publications_unique)
+co_referencing_publications_unique = bearbeitung_metadaten(co_referencing_publications_unique)
+combined_publications_unique = bearbeitung_metadaten(combined_publications_unique)
+reference_publications_unique = bearbeitung_metadaten(reference_publications_unique)
+
 #Anreicherung der Ausgangspublikationen 
-#base_publications_unique = assign_co_reference(base_publications_unique, referenced_publications_unique, 'referencing_works')
-#base_publications_unique = assign_co_reference(base_publications_unique, referencing_publications_unique, 'referenced_works')
 referencing_publications_unique = enrichment_publications(referencing_publications_unique, co_referenced_publications_unique, 'referenced_works')
 referenced_publications_unique = enrichment_publications(referenced_publications_unique, co_referencing_publications_unique, 'referencing_works')
 base_publications_unique = enrichment_publications(base_publications_unique, referenced_publications_unique, 'referenced_works')
 base_publications_unique = enrichment_publications(base_publications_unique, referencing_publications_unique, 'referencing_works')
 #base_publications_unique = enrichment_publications(base_publications_unique, combined_publications_unique, 'reference_works')
+
+document_frequency_dict = document_frequency(base_publications_unique)
 
 save_to_json("referencing_publications_unique.json", referencing_publications_unique)
 save_to_json("referenced_publications_unique.json", referenced_publications_unique)
