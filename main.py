@@ -54,8 +54,8 @@ def extract_publication_data(pager, base_publications_unique):
             base_publications_unique.append({
                     'id': publication['id'], 'title': publication['title'], 'authorships': publication['authorships'],
                     'abstract': publication["abstract"] or "", 'language': publication.get('language', ""), 'kombinierte Terme Titel und Abstract' : {},
-            'referenced_works_count': publication['referenced_works_count'], 'referenced_works': referenced_works_id,
-                    'cited_by_count': publication['cited_by_count'], 'referencing_works': [], 'kombinierte Terme referencing_works' : {},
+            'referenced_works_count': publication['referenced_works_count'], 'referenced_works': referenced_works_id, 'Abruf referenced_works':'offen',
+                    'cited_by_count': publication['cited_by_count'], 'referencing_works': [], 'Abruf referencing_works':'offen','kombinierte Terme referencing_works' : {},
                     'count_reference': "", 'reference_works': [], 'kombinierte Terme referenced_works' : {},
                     'count_co_referenced' : "", 'co_referenced_works': [],
                     'count_co_referencing' : "",'co_referencing_works': [],
@@ -80,16 +80,17 @@ def get_referenced_works(base_publications_unique, filename):
     # referenced_publications_unique enthält einmalig die Metadaten aller zitierten Publikationen der Ausgangspublikationen
     unique_referenced_pubs = []
     referenced_publications_unique_ids = []
+    referenced_works_count = 0
 
     for publication in base_publications_unique:
         referenced_publications_unique_ids = merge_and_deduplicate(referenced_publications_unique_ids, publication['referenced_works'])
     pager_referenced = build_pager(referenced_publications_unique_ids)
     for pager in pager_referenced:
         unique_referenced_pubs = extract_publication_data(pager, unique_referenced_pubs)
-
-    unique_referenced_pubs.sort(key=lambda x: x.get('id', 0), reverse=True)
-
-    save_to_json(filename, unique_referenced_pubs)
+        unique_referenced_pubs.sort(key=lambda x: x.get('id', 0), reverse=True)
+        save_to_json(filename, unique_referenced_pubs)
+        referenced_works_count += 50
+        print('Es wurden ', referenced_works_count, ' von ', len(referenced_publications_unique_ids), ' zitierten Dokumente abgerufen.')
 
     print(f"Anzahl der unique referenced publications: {len(unique_referenced_pubs)}")
 
@@ -117,21 +118,35 @@ def build_pager(list_ids):
 
 def get_referencing_works(base_publications_unique, filename, filename_base):
     referencing_pub_unique = []
+    count_pub = 0
+    referencing_pub_unique = load_from_json(filename)
 
     for publication in base_publications_unique:
-        referencing_publications = []
-        pager_referencing = Works().filter(cites=publication['id']).select(["id", "title", "authorships", "referenced_works", "abstract_inverted_index", "cited_by_count","referenced_works_count","language"])
-        referencing_pub_unique = extract_publication_data(pager_referencing, referencing_pub_unique)
-        referencing_publications = extract_publication_data(pager_referencing, referencing_publications)
-        referencing_publications_ids = [pub['id'] for pub in referencing_publications]
+        if publication['Abruf referencing_works'] == 'offen':
+            referencing_publications = []
+            pager_referencing = Works().filter(cites=publication['id']).select(["id", "title", "authorships", "referenced_works", "abstract_inverted_index", "cited_by_count","referenced_works_count","language"])
+            referencing_pub_unique = extract_publication_data(pager_referencing, referencing_pub_unique)
+            referencing_publications = extract_publication_data(pager_referencing, referencing_publications)
+            referencing_publications_ids = [pub['id'] for pub in referencing_publications]
 
-        publication['referencing_works'] = referencing_publications_ids
-        publication['reference_works'] = merge_and_deduplicate(publication['referenced_works'], publication['referencing_works'])
-        publication['count_reference'] = len(publication['reference_works'])
+            publication['referencing_works'] = referencing_publications_ids
+            publication['reference_works'] = merge_and_deduplicate(publication['referenced_works'], publication['referencing_works'])
+            publication['count_reference'] = len(publication['reference_works'])
+            publication['Abruf referencing_works'] = 'abgeschlossen'
 
-    referencing_pub_unique.sort(key=lambda x: x.get('id', 0), reverse=True)
-    save_to_json(filename_base, base_publications_unique)
-    save_to_json(filename, referencing_pub_unique)
+            referencing_pub_unique.sort(key=lambda x: x.get('id', 0), reverse=True)
+            save_to_json(filename_base, base_publications_unique)
+            save_to_json(filename, referencing_pub_unique)
+
+            count_pub += 1
+            print("Es wurden " + str(count_pub) + " von " + str(len(base_publications_unique)) + " abgerufen.")
+        else:
+            count_pub += 1
+            print("Es wurden " + str(count_pub) + " von " + str(len(base_publications_unique)) + " abgerufen.")
+            continue
+
+
+
 
     print(f"Anzahl der unique referencing publications: {len(referencing_pub_unique)}")
 
@@ -283,9 +298,16 @@ def save_to_json(filename, data):
 
 def load_from_json(filename):
     """Hilfsfunktion zum Laden von Daten aus einer JSON-Datei"""
-    with open(Path(filename), "r") as f:
-        data = json.load(f)
-    return data
+    try:
+        with open(Path(filename), "r") as f:
+            data = json.load(f)
+        return data
+    except FileNotFoundError:
+        print(f"Warnung: Die Datei {filename} wurde nicht gefunden. Es wird eine leere Liste zurückgegeben.")
+        return []
+    except json.JSONDecodeError as e:
+        print(f"Fehler: Die Datei {filename} konnte nicht geparst werden. Ursache: {str(e)}")
+        return []
 
 def combine_dictionaries(*dicts):
     ''' Kombiniert mehrere Dicts, wobei Werte für identische Schlüssel summiert werden '''
@@ -424,24 +446,44 @@ def consistency_check(base_pub_unique, referenced_pub_unique, referencing_pub_un
 
 # Hauptprogrammfluss
 #pager = Works().filter(primary_topic={"subfield.id": "subfields/3309"}).select(["id", "title", "authorships", "referenced_works", "abstract_inverted_index","referenced_works_count", "cited_by_count"])
-pager = Works().filter(primary_topic={"id": "t10286"}).select(["id", "title", "authorships", "referenced_works", "abstract_inverted_index","referenced_works_count", "cited_by_count"])
-#pager = Works().filter(ids={"openalex": "W2053522485"}).select(["id", "title", "authorships", "referenced_works", "abstract_inverted_index", "cited_by_count","referenced_works_count","language"])
 
 #Abruf der Metadaten Ausgangspublikation, zitierte und zitierende Publikationen
+"""
+pager = Works().filter(primary_topic={"id": "t10286"}).select(["id", "title", "authorships", "referenced_works", "abstract_inverted_index","referenced_works_count", "cited_by_count"])
 
-base_publications_unique = get_by_api(pager, "t10286_raw_base_publications.json")
-referenced_publications_unique = get_referenced_works(base_publications_unique, "t10286_raw_referenced_publications_unique.json")
-referencing_publications_unique = get_referencing_works(base_publications_unique, "t10286_raw_referencing_publications_unique.json", "raw_base_publications.json")
-co_referencing_publications_unique = get_referencing_works(referenced_publications_unique, "t10286_raw_co_referencing_publications_unique.json", "raw_referenced_publications_unique.json")
+base_publications_unique = load_from_json("t10286_raw_base_publications.json")
+
+#base_publications_unique = get_by_api(pager, "t10286_raw_base_publications.json")
+#referenced_publications_unique = get_referenced_works(base_publications_unique, "t10286_raw_referenced_publications_unique.json")
+#referencing_publications_unique = get_referencing_works(base_publications_unique, "t10286_raw_referencing_publications_unique.json", "t10286_raw_base_publications.json")
+
+referenced_publications_unique = load_from_json("t10286_raw_referenced_publications_unique.json")
+referencing_publications_unique = load_from_json("t10286_raw_referencing_publications_unique.json")
+
+co_referencing_publications_unique = get_referencing_works(referenced_publications_unique, "t10286_raw_co_referencing_publications_unique.json", "t10286_raw_referenced_publications_unique.json")
 co_referenced_publications_unique = get_referenced_works(referencing_publications_unique, "t10286_raw_co_referenced_publications_unique.json")
 
+"""
+pager = Works().filter(ids={"openalex": "W2053522485"}).select(["id", "title", "authorships", "referenced_works", "abstract_inverted_index", "cited_by_count","referenced_works_count","language"])
+
+base_publications_unique = get_by_api(pager, "W2053522485_raw_base_publications.json")
+referenced_publications_unique = get_referenced_works(base_publications_unique, "W2053522485_raw_referenced_publications_unique.json")
+referencing_publications_unique = get_referencing_works(base_publications_unique, "W2053522485_raw_referencing_publications_unique.json", "W2053522485_raw_base_publications.json")
+
+base_publications_unique = load_from_json("W2053522485_raw_base_publications.json")
+referenced_publications_unique = load_from_json("W2053522485_raw_referenced_publications_unique.json")
+referencing_publications_unique = load_from_json("W2053522485_raw_referencing_publications_unique.json")
+
+co_referencing_publications_unique = get_referencing_works(referenced_publications_unique, "W2053522485_raw_co_referencing_publications_unique.json", "W2053522485_raw_referenced_publications_unique.json")
+co_referenced_publications_unique = get_referenced_works(referencing_publications_unique, "W2053522485_raw_co_referenced_publications_unique.json")
+
 # Zusammenführung aller Publikationen (Ausgangspublikationen, zitierte und zitierende Publikationen) zur Berechnung der Document Frequency der einzelnen Terme
-combined_publications_unique = collect_all_publications([base_publications_unique, referenced_publications_unique, referencing_publications_unique, co_referenced_publications_unique, co_referencing_publications_unique], "t10286_raw_combined_publications_unique.json")
-reference_publications_unique = collect_all_publications([referenced_publications_unique, referencing_publications_unique, co_referenced_publications_unique, co_referencing_publications_unique], "t10286_raw_reference_publications_unique.json")
+combined_publications_unique = collect_all_publications([base_publications_unique, referenced_publications_unique, referencing_publications_unique, co_referenced_publications_unique, co_referencing_publications_unique], "W2053522485_raw_combined_publications_unique.json")
+reference_publications_unique = collect_all_publications([referenced_publications_unique, referencing_publications_unique, co_referenced_publications_unique, co_referencing_publications_unique], "W2053522485_raw_reference_publications_unique.json")
 
 consistency_check(base_publications_unique, referenced_publications_unique, referencing_publications_unique, co_referenced_publications_unique, co_referencing_publications_unique)
 
-'''
+"""
 # Speicherung der nicht-angereicherten Metadaten
 base_publications_unique = load_from_json("raw_base_publications.json")
 referenced_publications_unique = load_from_json("raw_referenced_publications_unique.json")
@@ -483,5 +525,4 @@ save_to_json("base_publications_unique.json", base_publications_unique)
 
 #enrichment_publications(base_publications_unique, co_referencing_publications_unique, 'co_referencing_works')
 #save_to_json("publications.json", solr_ready(base_publications_unique))
-
-'''
+"""
