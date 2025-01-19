@@ -3,7 +3,7 @@ import difflib
 
 import nltk
 import pyalex
-from pyalex import Works, config
+from pyalex import Works, Sources, config
 import json
 import re
 import math
@@ -34,7 +34,7 @@ def setup_pyalex():
     config.retry_http_codes = RETRY_HTTP_CODES
 
 def extract_publication_data(pager, base_publications_unique):
-
+    non_english = 0
     for page in chain(pager.paginate(per_page=200, n_max=None)):
         for publication in page:
 
@@ -50,18 +50,21 @@ def extract_publication_data(pager, base_publications_unique):
                 for ref_id in publication.get('referenced_works', [])
             ]
 
-            #if publication['cited_by_count'] < 2000 :
+            #if publication['language'] == "en":
             base_publications_unique.append({
-                    'id': publication['id'], 'title': publication['title'], 'authorships': publication['authorships'],
-                    'abstract': publication["abstract"] or "", 'language': publication.get('language', ""), 'kombinierte Terme Titel und Abstract' : {},
-            'referenced_works_count': publication['referenced_works_count'], 'referenced_works': referenced_works_id, 'Abruf referenced_works':'offen',
-                    'cited_by_count': publication['cited_by_count'], 'referencing_works': [], 'Abruf referencing_works':'offen','kombinierte Terme referencing_works' : {},
-                    'count_reference': "", 'reference_works': [], 'kombinierte Terme referenced_works' : {},
-                    'count_co_referenced' : "", 'co_referenced_works': [],
-                    'count_co_referencing' : "",'co_referencing_works': [],
-                    'count_co_reference' : "",'co_reference_works': []
-                })
+                'id': publication['id'], 'title': publication['title'], 'authorships': publication['authorships'],
+                'abstract': publication["abstract"] or "", 'language': publication.get('language', ""), 'kombinierte Terme Titel und Abstract' : {},
+                'referenced_works_count': publication['referenced_works_count'], 'referenced_works': referenced_works_id, 'Abruf referenced_works':'offen',
+                'cited_by_count': publication['cited_by_count'], 'referencing_works': [], 'Abruf referencing_works':'offen','kombinierte Terme referencing_works' : {},
+                'count_reference': "", 'reference_works': [], 'kombinierte Terme referenced_works' : {},
+                'count_co_referenced' : "", 'co_referenced_works': [],
+                'count_co_referencing' : "",'co_referencing_works': [],
+                'count_co_reference' : "",'co_reference_works': []
+            })
+            #else:
+                #non_english = non_english + 1
 
+    #print(f"Anzahl der non-English Publikationen: {non_english}")
     return base_publications_unique
 
 def get_by_api(pager, filename):
@@ -460,19 +463,15 @@ base_publications_unique = load_from_json("t10286_raw_base_publications.json")
 referenced_publications_unique = load_from_json("t10286_raw_referenced_publications_unique.json")
 referencing_publications_unique = load_from_json("t10286_raw_referencing_publications_unique.json")
 
-co_referencing_publications_unique = get_referencing_works(referenced_publications_unique, "t10286_raw_co_referencing_publications_unique.json", "t10286_raw_referenced_publications_unique.json")
 co_referenced_publications_unique = get_referenced_works(referencing_publications_unique, "t10286_raw_co_referenced_publications_unique.json")
-
+co_referencing_publications_unique = get_referencing_works(referenced_publications_unique, "t10286_raw_co_referencing_publications_unique.json", "t10286_raw_referenced_publications_unique.json")
+"""
 """
 pager = Works().filter(ids={"openalex": "W2053522485"}).select(["id", "title", "authorships", "referenced_works", "abstract_inverted_index", "cited_by_count","referenced_works_count","language"])
 
 base_publications_unique = get_by_api(pager, "W2053522485_raw_base_publications.json")
 referenced_publications_unique = get_referenced_works(base_publications_unique, "W2053522485_raw_referenced_publications_unique.json")
 referencing_publications_unique = get_referencing_works(base_publications_unique, "W2053522485_raw_referencing_publications_unique.json", "W2053522485_raw_base_publications.json")
-
-base_publications_unique = load_from_json("W2053522485_raw_base_publications.json")
-referenced_publications_unique = load_from_json("W2053522485_raw_referenced_publications_unique.json")
-referencing_publications_unique = load_from_json("W2053522485_raw_referencing_publications_unique.json")
 
 co_referencing_publications_unique = get_referencing_works(referenced_publications_unique, "W2053522485_raw_co_referencing_publications_unique.json", "W2053522485_raw_referenced_publications_unique.json")
 co_referenced_publications_unique = get_referenced_works(referencing_publications_unique, "W2053522485_raw_co_referenced_publications_unique.json")
@@ -482,16 +481,36 @@ combined_publications_unique = collect_all_publications([base_publications_uniqu
 reference_publications_unique = collect_all_publications([referenced_publications_unique, referencing_publications_unique, co_referenced_publications_unique, co_referencing_publications_unique], "W2053522485_raw_reference_publications_unique.json")
 
 consistency_check(base_publications_unique, referenced_publications_unique, referencing_publications_unique, co_referenced_publications_unique, co_referencing_publications_unique)
+"""
+
+pager = Works().filter(primary_location={"source.id": "S4306418959|S197106261|S2496055428"}).select(["id", "title", "authorships", "referenced_works", "abstract_inverted_index", "cited_by_count","referenced_works_count","language"])
+
+base_publications_unique = get_by_api(pager, "S4306418959_raw_base_publications.json")
+referenced_publications_unique = get_referenced_works(base_publications_unique, "S4306418959_raw_referenced_publications_unique.json")
+referencing_publications_unique = get_referencing_works(base_publications_unique, "S4306418959_raw_referencing_publications_unique.json", "S4306418959_raw_base_publications.json")
+
+base_publications_unique = load_from_json("S4306418959_raw_base_publications.json")
+referenced_publications_unique = load_from_json("S4306418959_raw_referenced_publications_unique.json")
+referencing_publications_unique = load_from_json("S4306418959_raw_referencing_publications_unique.json")
+
+co_referencing_publications_unique = get_referencing_works(referenced_publications_unique, "S4306418959_raw_co_referencing_publications_unique.json", "S4306418959_raw_referenced_publications_unique.json")
+co_referenced_publications_unique = get_referenced_works(referencing_publications_unique, "S4306418959_raw_co_referenced_publications_unique.json")
+
+# Zusammenführung aller Publikationen (Ausgangspublikationen, zitierte und zitierende Publikationen) zur Berechnung der Document Frequency der einzelnen Terme
+combined_publications_unique = collect_all_publications([base_publications_unique, referenced_publications_unique, referencing_publications_unique, co_referenced_publications_unique, co_referencing_publications_unique], "S4306418959_raw_combined_publications_unique.json")
+reference_publications_unique = collect_all_publications([referenced_publications_unique, referencing_publications_unique, co_referenced_publications_unique, co_referencing_publications_unique], "S4306418959_raw_reference_publications_unique.json")
+
+consistency_check(base_publications_unique, referenced_publications_unique, referencing_publications_unique, co_referenced_publications_unique, co_referencing_publications_unique)
 
 """
 # Speicherung der nicht-angereicherten Metadaten
-base_publications_unique = load_from_json("raw_base_publications.json")
-referenced_publications_unique = load_from_json("raw_referenced_publications_unique.json")
-referencing_publications_unique = load_from_json("raw_referencing_publications_unique.json")
-co_referenced_publications_unique = load_from_json("raw_co_referenced_publications_unique.json")
-co_referencing_publications_unique = load_from_json("raw_co_referencing_publications_unique.json")
-combined_publications_unique = load_from_json("raw_combined_publications_unique.json")
-reference_publications_unique = load_from_json("raw_reference_publications_unique.json")
+base_publications_unique = load_from_json("W2053522485_raw_base_publications.json")
+referenced_publications_unique = load_from_json("W2053522485_raw_referenced_publications_unique.json")
+referencing_publications_unique = load_from_json("W2053522485_raw_referencing_publications_unique.json")
+co_referenced_publications_unique = load_from_json("W2053522485_raw_co_referenced_publications_unique.json")
+co_referencing_publications_unique = load_from_json("W2053522485_raw_co_referencing_publications_unique.json")
+combined_publications_unique = load_from_json("W2053522485_raw_combined_publications_unique.json")
+reference_publications_unique = load_from_json("W2053522485_raw_reference_publications_unique.json")
 
 #bearbeitung Metadaten
 base_publications_unique = bearbeitung_metadaten(base_publications_unique)
