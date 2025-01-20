@@ -88,6 +88,7 @@ def get_referenced_works(base_publications_unique, filename):
     for publication in base_publications_unique:
         referenced_publications_unique_ids = merge_and_deduplicate(referenced_publications_unique_ids, publication['referenced_works'])
     pager_referenced = build_pager(referenced_publications_unique_ids)
+
     for pager in pager_referenced:
         unique_referenced_pubs = extract_publication_data(pager, unique_referenced_pubs)
         unique_referenced_pubs.sort(key=lambda x: x.get('id', 0), reverse=True)
@@ -155,7 +156,7 @@ def get_referencing_works(base_publications_unique, filename, filename_base):
 
     return referencing_pub_unique
 
-def bearbeitung_metadaten(base_publications_unique):
+def texttransformation_metadaten(base_publications_unique):
     for publication in base_publications_unique:
         if publication['language'] == 'en':
             term_dict = initialize_term_dict(normalize_text(f"{publication['title']} {publication['abstract']}"))
@@ -245,7 +246,7 @@ def initialize_term_dict(terms):
     return term_count_dict
 
 
-def document_frequency(publications_unique):
+def document_frequency(publications_unique, num_documents):
     """
     Hilfunktion zur Ermittlung der document frequency aller Terme in "kombinierte Terme Titel und Abstract"
     für die übergebene Liste an Publikationen
@@ -267,16 +268,24 @@ def document_frequency(publications_unique):
             else:
                 document_frequency_dict[term] += 1
 
-    sorted_df = dict(sorted(document_frequency_dict.items(), key=lambda item: item[0]))
+    # Entferne Terme mit Wert 1 oder größer als num_documents / 3
+    filtered_df = {
+        term: count
+        for term, count in document_frequency_dict.items()
+        if count != 1 and count <= num_documents / 1
+    }
+
+    sorted_df = dict(sorted(filtered_df.items(), key=lambda item: item[1], reverse=True))
     save_to_json('document_frequency.json', sorted_df)
 
-    return document_frequency_dict
+    return sorted_df
 
 def assign_tfidf(term_lists, document_frequency_dict, num_documents):
 # Es wird nur die reine Vorkommenshäufigkeit freq genutzt, Abwandlung in relative Vorkommenshäufigkeit noch offen
     tfidfs = {
-        term:freq*math.log(num_documents / document_frequency_dict[term])
-            for term, freq in term_lists.items()
+        term: (freq * math.log(num_documents / document_frequency_dict[term], 2) #log e
+               if term in document_frequency_dict else 0)
+        for term, freq in term_lists.items()
     }
 
     sorted_tf_idf = sorted(tfidfs.items(), key=lambda item: item[1], reverse=True)
@@ -344,13 +353,13 @@ def assign_co_reference(base_publications_unique, reference_publications_unique,
         publication['count_co_referenced'] = len(publication['co_referenced_works'])
 
     return base_publications_unique
-
+"""
 def enrichment_publications(base_pub_unique, reference_pub_unique, reference):
-    """
-    Jede Ausgangspublikation in base_publications_unique wird ergänzt um Terme aus den referenzierten bzw. referenzierenden
-    Publikationen der jeweiligen Ausgangspublikation. Dabei werden nur Terme übernommen, die noch nicht in der Ausgangspublikation
-    enthalten sind.
-    """
+    
+    #Jede Ausgangspublikation in base_publications_unique wird ergänzt um Terme aus den referenzierten bzw. referenzierenden
+    #Publikationen der jeweiligen Ausgangspublikation. Dabei werden nur Terme übernommen, die noch nicht in der Ausgangspublikation
+    #enthalten sind.
+    
     # Convert referenced_works list to a dictionary for quick lookup
     reference_publications_dict = {publication['id']: publication['kombinierte Terme Titel und Abstract'] for publication in reference_pub_unique}
     co_referenced_publications_dict = {publication['id']: publication['kombinierte Terme referencing_works'] for publication in reference_pub_unique}
@@ -376,7 +385,73 @@ def enrichment_publications(base_pub_unique, reference_pub_unique, reference):
         #item['Anzahl kombinierte Terme ' + reference] = len(sorted_terms)
 
     return base_pub_unique
+"""
+def enrichment_publications(base_pub_unique):
+    """
+    Jede Ausgangspublikation in base_publications_unique wird ergänzt um Terme aus den referenzierten bzw. referenzierenden
+    Publikationen der jeweiligen Ausgangspublikation. Dabei werden nur Terme übernommen, die noch nicht in der Ausgangspublikation
+    enthalten sind.
+    """
+    # Convert referenced_works list to a dictionary for quick lookup
+    reference_publications_dict = {publication['id']: publication['kombinierte Terme Titel und Abstract'] for publication in base_pub_unique}
 
+    # Enrich each item in all_items
+    for item in base_pub_unique:
+        termset_item = item['kombinierte Terme Titel und Abstract']
+
+        combined_terms_referenced = {}
+        for id_ref in item['referenced_works']:
+            if id_ref in reference_publications_dict:
+                # Add the 'kombinierte Terme' from the referenced publication
+                combined_terms_referenced = combine_dictionaries(combined_terms_referenced, reference_publications_dict[id_ref])
+            else:
+                print(f"Key {id_ref} does not exist in reference_publications_dict")
+        # Aggregate terms and store in the item
+        combined_terms_referenced_excl = exclude_dict(combined_terms_referenced, termset_item)
+        sorted_terms = dict(sorted(combined_terms_referenced_excl.items(), key=lambda x: x[1], reverse=True))
+        item['kombinierte Terme referenced_works'] = sorted_terms
+
+        combined_terms_referencing = {}
+        for id_ref in item['referencing_works']:
+            if id_ref in reference_publications_dict:
+                # Add the 'kombinierte Terme' from the referenced publication
+                combined_terms_referencing = combine_dictionaries(combined_terms_referencing, reference_publications_dict[id_ref])
+            else:
+                print(f"Key {id_ref} does not exist in reference_publications_dict")
+        # Aggregate terms and store in the item
+        combined_terms_referencing_excl = exclude_dict(combined_terms_referenced, termset_item)
+        sorted_terms = dict(sorted(combined_terms_referencing_excl.items(), key=lambda x: x[1], reverse=True))
+        item['kombinierte Terme referencing_works'] = sorted_terms
+
+        combined_terms_co_referenced = {}
+        for id_ref in item['co_referenced_works']:
+            if id_ref in reference_publications_dict:
+                # Add the 'kombinierte Terme' from the referenced publication
+                combined_terms_co_referenced = combine_dictionaries(combined_terms_co_referenced, reference_publications_dict[id_ref])
+            else:
+                print(f"Key {id_ref} does not exist in reference_publications_dict")
+        # Aggregate terms and store in the item
+        combined_terms_co_referenced_excl = exclude_dict(combined_terms_co_referenced, termset_item)
+        sorted_terms = dict(sorted(combined_terms_co_referenced_excl.items(), key=lambda x: x[1], reverse=True))
+        item['kombinierte Terme co_referenced_works'] = sorted_terms
+
+        combined_terms_co_referencing = {}
+        for id_ref in item['co_referencing_works']:
+            if id_ref in reference_publications_dict:
+                # Add the 'kombinierte Terme' from the referenced publication
+                combined_terms_co_referencing = combine_dictionaries(combined_terms_co_referencing, reference_publications_dict[id_ref])
+            else:
+                print(f"Key {id_ref} does not exist in reference_publications_dict")
+        # Aggregate terms and store in the item
+        combined_terms_co_referencing_excl = exclude_dict(combined_terms_co_referencing, termset_item)
+        sorted_terms = dict(sorted(combined_terms_referencing_excl.items(), key=lambda x: x[1], reverse=True))
+        item['kombinierte Terme co_referencing_works'] = sorted_terms
+
+        item['kombinierte Terme reference_works'] = combine_dictionaries(item['kombinierte Terme referenced_works'], item['kombinierte Terme referencing_works'])
+        item['kombinierte Terme co_reference_works'] = combine_dictionaries(item['kombinierte Terme co_referenced_works'], item['kombinierte Terme co_referencing_works'])
+
+
+    return base_pub_unique
 def collect_all_publications(publications_list, filename):
     publications_unique = []
     publications_unique_id = []
@@ -447,6 +522,148 @@ def consistency_check(base_pub_unique, referenced_pub_unique, referencing_pub_un
     print('different:')
     print(diff_set)
 
+def add_references(combined_publications_unique):
+    citing_pubs_found = 0
+    co_citing_pubs_found = 0
+    co_cited_pubs_found = 0
+
+    # 1. Indexe vorbereiten
+    id_to_publication = {pub['id']: pub for pub in combined_publications_unique}
+
+    # Referenzierungs-Lookup vorbereiten
+    referenced_works_index = {}
+    for pub in combined_publications_unique:
+        for referenced_id in pub.get('referenced_works', []):  # Werke, auf die sich pub bezieht
+            if referenced_id not in referenced_works_index:
+                referenced_works_index[referenced_id] = set()
+            referenced_works_index[referenced_id].add(pub['id'])
+
+    # Referenzierungs-Lookup vorbereiten
+    referencing_works_index = {}
+    for pub in combined_publications_unique:
+        for referencing_id in pub.get('referencing_works', []):  # Werke, auf die sich pub bezieht
+            if referencing_id not in referencing_works_index:
+                referencing_works_index[referencing_id] = set()
+            referencing_works_index[referencing_id].add(pub['id'])
+
+    # 2. Referenzierungen effizient hinzufügen
+    for pub in combined_publications_unique:
+        pub_id = pub['id']
+        referencing_works = pub.get('referencing_works', [])
+        referencing_works_set = set(referencing_works)  # Umwandeln in ein Set (schneller Lookup)
+
+        for referencing_id in referenced_works_index.get(pub_id, []):  # Publikationen, die pub referenzieren
+            if referencing_id not in referencing_works_set:
+                pub['referencing_works'].append(referencing_id)
+                citing_pubs_found += 1
+
+    # 3. Co-zitierende Publikationen mit Sets auffinden
+    # Speichere geprüfte Beziehungen, um doppelte Prüfungen zu vermeiden
+    checked_pairs = set()  # Set zur Speicherung von geprüften Paaren (pub_id, pub2_id)
+
+    for pub in combined_publications_unique:
+        pub_id = pub['id']
+        pub_referencing_works = set(pub.get('referencing_works', []))  # Publikationen, auf die pub verweist
+
+        # Überspringe Publikationen ohne Referenzierungen
+        if not pub_referencing_works:
+            continue
+
+        # Finde weitere Publikationen, die ebenfalls auf diese Referenzen verweisen
+        for ref_id in pub_referencing_works:
+            referenced_pubs = referencing_works_index.get(ref_id, set())  # Publikationen, die ref_id referenzieren
+
+            for pub2_id in referenced_pubs:
+                # Überspringe die gleiche Publikation
+                if pub_id == pub2_id:
+                    continue
+
+                # Überprüfe, ob diese Beziehung bereits geprüft wurde
+                if (pub_id, pub2_id) in checked_pairs or (pub2_id, pub_id) in checked_pairs:
+                    continue
+
+                pub2 = id_to_publication[pub2_id]
+                pub2_referencing_works = set(pub2.get('referencing_works', []))  # Referenzen von pub2
+
+                # Finde die gemeinsamen referenzierten Werke
+                common_refs = pub_referencing_works & pub2_referencing_works  # Schnittmenge
+
+                if common_refs:  # Falls gemeinsame Zitationen existieren
+                    # Füge pub2_id als *co-cited work* zu pub hinzu
+                    if pub2_id not in pub['co_referencing_works']:
+                        pub['co_referencing_works'].append(pub2_id)
+
+                    # Füge pub_id als *co-cited work* zu pub2 hinzu
+                    if pub_id not in pub2['co_referencing_works']:
+                        pub2['co_referencing_works'].append(pub_id)
+
+                # Markiere die Beziehung als geprüft
+                co_citing_pubs_found += 1
+                checked_pairs.add((pub_id, pub2_id))
+
+    # 4. Co-zitierte Publikationen effizient hinzufügen (analog zu Co-Referenzierungen)
+    checked_pairs = set()  # Set zur Speicherung von geprüften Paaren (pub_id, pub2_id)
+
+    for pub in combined_publications_unique:
+        pub_id = pub['id']
+        pub_referenced_works = set(pub.get('referenced_works', []))  # Publikationen, auf die pub verweist
+
+        # Überspringe Publikationen ohne Referenzierungen
+        if not pub_referenced_works:
+            continue
+
+        # Finde weitere Publikationen, die ebenfalls auf diese Referenzen verweisen
+        for ref_id in pub_referenced_works:
+            referencing_pubs = referenced_works_index.get(ref_id, set())  # Publikationen, die ref_id referenzieren
+
+            for pub2_id in referencing_pubs:
+                # Überspringe die gleiche Publikation
+                if pub_id == pub2_id:
+                    continue
+
+                # Überprüfe, ob diese Beziehung bereits geprüft wurde
+                if (pub_id, pub2_id) in checked_pairs or (pub2_id, pub_id) in checked_pairs:
+                    continue
+
+                pub2 = id_to_publication[pub2_id]
+                pub2_referenced_works = set(pub2.get('referenced_works', []))  # Referenzen von pub2
+
+                # Finde die gemeinsamen referenzierten Werke
+                common_refs = pub_referenced_works & pub2_referenced_works  # Schnittmenge
+
+                if common_refs:  # Falls gemeinsame Zitationen existieren
+                    # Füge pub2_id als *co-cited work* zu pub hinzu
+                    if pub2_id not in pub['co_referenced_works']:
+                        pub['co_referenced_works'].append(pub2_id)
+
+                    # Füge pub_id als *co-cited work* zu pub2 hinzu
+                    if pub_id not in pub2['co_referenced_works']:
+                        pub2['co_referenced_works'].append(pub_id)
+
+                # Markiere die Beziehung als geprüft
+                co_cited_pubs_found += 1
+                checked_pairs.add((pub_id, pub2_id))
+
+    print("Anzahl der gefundenen zitierenden Publikationen:", citing_pubs_found)
+    print("Anzahl der gefundenen co-zitierenden Publikationen:", co_citing_pubs_found)
+    print("Anzahl der gefundenen co-zitierten Publikationen:", co_cited_pubs_found)
+
+    # Ergebnisse speichern
+    save_to_json("raw_combined_publications_unique_with_references.json", combined_publications_unique)
+    return combined_publications_unique
+
+def update_metadata(combined_publications_unique):
+    for publication in combined_publications_unique:
+        if publication['reference_works'] == []:
+            publication['reference_works'] = merge_and_deduplicate(publication['referenced_works'], publication['referencing_works'])
+        publication['co_reference_works'] = merge_and_deduplicate(publication['co_referenced_works'], publication['co_referencing_works'])
+        publication['count_co_reference'] = len(publication['co_reference_works'])
+        publication['count_co_referenced'] = len(publication['co_referenced_works'])
+        publication['count_co_referencing'] = len(publication['co_referencing_works'])
+    save_to_json("updated_raw_combined_publications_unique_with_references.json", combined_publications_unique)
+    return combined_publications_unique
+
+
 # Hauptprogrammfluss
 #pager = Works().filter(primary_topic={"subfield.id": "subfields/3309"}).select(["id", "title", "authorships", "referenced_works", "abstract_inverted_index","referenced_works_count", "cited_by_count"])
 
@@ -482,7 +699,7 @@ reference_publications_unique = collect_all_publications([referenced_publication
 
 consistency_check(base_publications_unique, referenced_publications_unique, referencing_publications_unique, co_referenced_publications_unique, co_referencing_publications_unique)
 """
-
+"""
 pager = Works().filter(primary_location={"source.id": "S4306418959|S197106261|S2496055428"}).select(["id", "title", "authorships", "referenced_works", "abstract_inverted_index", "cited_by_count","referenced_works_count","language"])
 
 base_publications_unique = get_by_api(pager, "S4306418959_raw_base_publications.json")
@@ -501,47 +718,67 @@ combined_publications_unique = collect_all_publications([base_publications_uniqu
 reference_publications_unique = collect_all_publications([referenced_publications_unique, referencing_publications_unique, co_referenced_publications_unique, co_referencing_publications_unique], "S4306418959_raw_reference_publications_unique.json")
 
 consistency_check(base_publications_unique, referenced_publications_unique, referencing_publications_unique, co_referenced_publications_unique, co_referencing_publications_unique)
-
 """
-# Speicherung der nicht-angereicherten Metadaten
-base_publications_unique = load_from_json("W2053522485_raw_base_publications.json")
-referenced_publications_unique = load_from_json("W2053522485_raw_referenced_publications_unique.json")
-referencing_publications_unique = load_from_json("W2053522485_raw_referencing_publications_unique.json")
-co_referenced_publications_unique = load_from_json("W2053522485_raw_co_referenced_publications_unique.json")
-co_referencing_publications_unique = load_from_json("W2053522485_raw_co_referencing_publications_unique.json")
-combined_publications_unique = load_from_json("W2053522485_raw_combined_publications_unique.json")
-reference_publications_unique = load_from_json("W2053522485_raw_reference_publications_unique.json")
 
-#bearbeitung Metadaten
-base_publications_unique = bearbeitung_metadaten(base_publications_unique)
-referenced_publications_unique = bearbeitung_metadaten(referenced_publications_unique)
-referencing_publications_unique = bearbeitung_metadaten(referencing_publications_unique)
-co_referenced_publications_unique = bearbeitung_metadaten(co_referenced_publications_unique)
-co_referencing_publications_unique = bearbeitung_metadaten(co_referencing_publications_unique)
-combined_publications_unique = bearbeitung_metadaten(combined_publications_unique)
-reference_publications_unique = bearbeitung_metadaten(reference_publications_unique)
+# Speicherung der nicht-angereicherten Metadaten
+combined_publications_unique = load_from_json("IR_raw_base_publications.json")
+
+
+#Texttransformation Metadaten
+combined_publications_unique = texttransformation_metadaten(combined_publications_unique)
+
+
+def mock_input_data():
+    return [
+        {
+            "id": "1",
+            "referenced_works": ["2","3","4"],
+            "referencing_works": [],
+            "co_referencing_works": [],
+            "co_referenced_works": []
+        },
+        {
+            "id": "2",
+            "referenced_works": [],
+            "referencing_works": ["1"],
+            "co_referencing_works": [],
+            "co_referenced_works": []
+        },
+        {
+            "id": "3",
+            "referenced_works": ["2"],
+            "referencing_works": ["1"],
+            "co_referencing_works": [],
+            "co_referenced_works": []
+        },
+        {
+            "id": "4",
+            "referenced_works": ["2"],
+            "referencing_works": ["1"],
+            "co_referencing_works": [],
+            "co_referenced_works": []
+        }
+    ]
+test_data = mock_input_data()
+
+added_references_publications_unique = add_references(combined_publications_unique)
+update_metadata = update_metadata(added_references_publications_unique)
 
 #Anreicherung der Ausgangspublikationen 
-referencing_publications_unique = enrichment_publications(referencing_publications_unique, co_referenced_publications_unique, 'referenced_works')
-referenced_publications_unique = enrichment_publications(referenced_publications_unique, co_referencing_publications_unique, 'referencing_works')
-base_publications_unique = enrichment_publications(base_publications_unique, referenced_publications_unique, 'referenced_works')
-base_publications_unique = enrichment_publications(base_publications_unique, referencing_publications_unique, 'referencing_works')
+base_publications_unique = enrichment_publications(update_metadata)
 
 #Anwendung von tf-idf
 num_documents = len(base_publications_unique)
-document_frequency_dict = document_frequency(base_publications_unique)
+document_frequency_dict = document_frequency(base_publications_unique, num_documents)
 
 for publications in base_publications_unique:
     publications['kombinierte Terme referenced_works'] = assign_tfidf(publications['kombinierte Terme referenced_works'], document_frequency_dict, num_documents)
     publications['kombinierte Terme referencing_works'] = assign_tfidf(publications['kombinierte Terme referencing_works'], document_frequency_dict, num_documents)
     publications['kombinierte Terme reference_works'] = assign_tfidf(publications['kombinierte Terme reference_works'], document_frequency_dict, num_documents)
+    publications['kombinierte Terme co_reference_works'] = assign_tfidf(publications['kombinierte Terme co_reference_works'], document_frequency_dict, num_documents)
+    publications['kombinierte Terme co_referenced_works'] = assign_tfidf(publications['kombinierte Terme co_referenced_works'], document_frequency_dict, num_documents)
+    publications['kombinierte Terme co_referencing_works'] = assign_tfidf(publications['kombinierte Terme co_referencing_works'], document_frequency_dict, num_documents)
 
-save_to_json("referencing_publications_unique.json", referencing_publications_unique)
-save_to_json("referenced_publications_unique.json", referenced_publications_unique)
-save_to_json("co_referenced_publications_unique.json", co_referenced_publications_unique)
-save_to_json("co_referencing_publications_unique.json", co_referencing_publications_unique)
 save_to_json("base_publications_unique.json", base_publications_unique)
-
-#enrichment_publications(base_publications_unique, co_referencing_publications_unique, 'co_referencing_works')
 #save_to_json("publications.json", solr_ready(base_publications_unique))
-"""
+
