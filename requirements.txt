@@ -5,3 +5,7 @@ pyalex~=0.15.1
 
 nltk~=3.9.1
 langdetect~=1.0.9
+pytest~=7.4.4
+ijson~=3.3.0
+langcodes~=3.3.0
+tqdm~=4.65.0

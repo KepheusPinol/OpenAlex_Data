@@ -37,44 +37,90 @@ def setup_pyalex():
     config.max_retries = 0
     config.retry_backoff_factor = 0.1
     config.retry_http_codes = RETRY_HTTP_CODES
+def process_page(page, ids_set):
+    """
+    Verarbeitet eine einzelne Seite von Veröffentlichungen und sammelt die Ergebnisse in einem Batch.
 
-def extract_publication_data(pager, base_publications_unique):
-    non_english = 0
-    for page in chain(pager.paginate(per_page=200, n_max=None)):
-        for publication in page:
+    Args:
+        page: Eine Seite mit Veröffentlichungen.
+        ids_set: Ein Set mit bereits verarbeiteten IDs, um Duplikate zu vermeiden.
 
-            publication['id'] = publication['id'].replace("https://openalex.org/", "")
-            if any(item['id'] == publication['id'] for item in base_publications_unique):
-                continue
-            author_display_names = [authorship["author"]["display_name"] for authorship in publication["authorships"]]
-            publication['authorships'] = author_display_names
-            publication['abstract'] = publication["abstract"] or ""
+    Returns:
+        Ein Batch (Liste) mit den verarbeiteten Veröffentlichungen.
+    """
+    batch = []  # Zwischenspeicher für verarbeitete Veröffentlichungen der aktuellen Seite
+    for publication in page:
+        # ID aufbereiten
+        publication_id = publication['id'].replace("https://openalex.org/", "")
+        if publication_id in ids_set:  # Duplikat schnell überspringen
+            continue
 
-            referenced_works_id = [
-                ref_id.replace("https://openalex.org/", "")
-                for ref_id in publication.get('referenced_works', [])
-            ]
+        # Autoren extrahieren
+        referenced_works_id = [
+            ref_id.replace("https://openalex.org/", "")
+            for ref_id in publication.get('referenced_works', [])
+        ]
 
-            #if publication['language'] == "en":
-            base_publications_unique.append({
-                'id': publication['id'], 'title': publication['title'], 'authorships': publication['authorships'],
-                'abstract': publication["abstract"] or "", 'language': publication.get('language', ""), 'kombinierte Terme Titel und Abstract' : {},
-                'referenced_works_count': publication['referenced_works_count'], 'referenced_works': referenced_works_id, 'Abruf referenced_works':'offen',
-                'cited_by_count': publication['cited_by_count'], 'referencing_works': [], 'Abruf referencing_works':'offen','kombinierte Terme referencing_works' : {},
-                'count_reference': "", 'reference_works': [], 'kombinierte Terme referenced_works' : {},
-                'count_co_referenced' : "", 'co_referenced_works': [],
-                'count_co_referencing' : "",'co_referencing_works': [],
-                'count_co_reference' : "",'co_reference_works': []
-            })
-            #else:
-                #non_english = non_english + 1
+        # Publikation zusammenstellen
+        batch.append({
+            'id': publication_id,
+            'title': publication['title'],
+            'abstract': publication.get("abstract", ""),
+            'language': publication.get('language', ""),
+            'kombinierte Terme Titel und Abstract': {},
+            'referenced_works_count': publication.get('referenced_works_count', 0),
+            'referenced_works': referenced_works_id,
+            'cited_by_count': publication.get('cited_by_count', 0),
+            'referencing_works': [],
+            'kombinierte Terme referencing_works': {},
+            'count_reference': "",
+            'reference_works': [],
+            'kombinierte Terme referenced_works': {},
+            'count_co_referenced': "",
+            'co_referenced_works': [],
+            'count_co_referencing': "",
+            'co_referencing_works': [],
+            'count_co_reference': "",
+            'co_reference_works': []
+        })
 
-    #print(f"Anzahl der non-English Publikationen: {non_english}")
+    # IDs zum eindeutigen Set hinzufügen (lokal im Thread)
+    ids_set.update(pub['id'] for pub in batch)
+    return batch
+
+
+def extract_publication_data_parallel(pager, base_publications_unique):
+    """
+    Parallelisierte Verarbeitung von Veröffentlichungsdaten.
+
+    Args:
+        pager: Pagination-Objekt, das Seiten mit Veröffentlichungen liefert.
+        base_publications_unique: Existierende Liste von Veröffentlichungen (bereits verarbeitete Publikationen enthalten).
+
+    Returns:
+        Aktualisierte Liste `base_publications_unique` mit allen verarbeiteten Veröffentlichungen.
+    """
+    # Bestehende IDs in ein Set laden
+    ids_set = set(item['id'] for item in base_publications_unique)
+
+    # ThreadPool für die parallele Verarbeitung der Seiten
+    with ThreadPoolExecutor() as executor:
+        futures = []
+        for page in pager.paginate(per_page=200, n_max=None):
+            # Übergibt jede Seite an einen eigenen Thread
+            futures.append(executor.submit(process_page, page, ids_set))
+
+        # Ergebnisse aus allen Threads sammeln
+        for future in futures:
+            batch = future.result()
+            base_publications_unique.extend(batch)  # Ergebnisse zur Hauptliste hinzufügen
+
     return base_publications_unique
+
 
 def get_by_api(pager, filename):
     # all_publications_unique enthält einmalig die Metadaten aller Ausgangspublikationen
-    base_publications_unique = extract_publication_data(pager, [])
+    base_publications_unique = extract_publication_data_parallel(pager, [])
 
     base_publications_unique.sort(key=lambda x: x.get('id', 0), reverse=True)
     save_to_json(filename, base_publications_unique)
@@ -84,7 +130,7 @@ def get_by_api(pager, filename):
     return base_publications_unique
 
 
-def get_referenced_works(base_publications_unique, filename):
+def get_referenced_works(base_publications_unique):
     # referenced_publications_unique enthält einmalig die Metadaten aller zitierten Publikationen der Ausgangspublikationen
     unique_referenced_pubs = []
     referenced_publications_unique_ids = []
@@ -95,16 +141,14 @@ def get_referenced_works(base_publications_unique, filename):
     pager_referenced = build_pager(referenced_publications_unique_ids)
 
     for pager in pager_referenced:
-        unique_referenced_pubs = extract_publication_data(pager, unique_referenced_pubs)
-        unique_referenced_pubs.sort(key=lambda x: x.get('id', 0), reverse=True)
-        save_to_json(filename, unique_referenced_pubs)
+        unique_referenced_pubs = extract_publication_data_parallel(pager, unique_referenced_pubs)
+        #unique_referenced_pubs.sort(key=lambda x: x.get('id', 0), reverse=True)
         referenced_works_count += 50
         print('Es wurden ', referenced_works_count, ' von ', len(referenced_publications_unique_ids), ' zitierten Dokumente abgerufen.')
 
     print(f"Anzahl der unique referenced publications: {len(unique_referenced_pubs)}")
 
     return unique_referenced_pubs
-
 
 def build_pager(list_ids):
     pagers = []
@@ -116,7 +160,7 @@ def build_pager(list_ids):
 
         # Erstellen eines pager-Objekts mit den aktuellen IDs
         pager = Works().filter(ids={"openalex": ref_id}).select([
-            "id", "title", "authorships", "referenced_works",
+            "id", "title", "referenced_works",
             "abstract_inverted_index", "cited_by_count", "referenced_works_count", "language"])
 
         # Hinzufügen des pager-Objekts zur pagers-Liste
@@ -124,39 +168,43 @@ def build_pager(list_ids):
 
     return pagers
 
+from concurrent.futures import ThreadPoolExecutor
+from threading import Lock
 
-def get_referencing_works(base_publications_unique, filename, filename_base):
+
+def get_referencing_works(base_publications_unique):
     referencing_pub_unique = []
     count_pub = 0
-    referencing_pub_unique = load_from_json(filename)
+    lock = Lock()  # Zum sicheren Zugriff auf count_pub
 
-    for publication in base_publications_unique:
-        if publication['Abruf referencing_works'] == 'offen':
-            referencing_publications = []
-            pager_referencing = Works().filter(cites=publication['id']).select(["id", "title", "authorships", "referenced_works", "abstract_inverted_index", "cited_by_count","referenced_works_count","language"])
-            referencing_pub_unique = extract_publication_data(pager_referencing, referencing_pub_unique)
-            referencing_publications = extract_publication_data(pager_referencing, referencing_publications)
-            referencing_publications_ids = [pub['id'] for pub in referencing_publications]
+    def process_publication(publication):
+        nonlocal count_pub
+        pager_referencing = Works().filter(cites=publication['id']).select(
+            ["id", "title", "referenced_works", "abstract_inverted_index", "cited_by_count", "referenced_works_count",
+             "language"])
+        referencing_publications = extract_publication_data_parallel(pager_referencing, [])
+        referencing_publications_ids = [pub['id'] for pub in referencing_publications]
+        publication['referencing_works'] = referencing_publications_ids
+        publication['reference_works'] = merge_and_deduplicate(publication['referenced_works'],
+                                                               publication['referencing_works'])
+        publication['count_reference'] = len(publication['reference_works'])
 
-            publication['referencing_works'] = referencing_publications_ids
-            publication['reference_works'] = merge_and_deduplicate(publication['referenced_works'], publication['referencing_works'])
-            publication['count_reference'] = len(publication['reference_works'])
-            publication['Abruf referencing_works'] = 'abgeschlossen'
-
-            referencing_pub_unique.sort(key=lambda x: x.get('id', 0), reverse=True)
-            save_to_json(filename_base, base_publications_unique)
-            save_to_json(filename, referencing_pub_unique)
-
+        # Thread-sicherer Zugriff auf count_pub
+        with lock:
             count_pub += 1
-            print("Es wurden " + str(count_pub) + " von " + str(len(base_publications_unique)) + " abgerufen.")
-        else:
-            count_pub += 1
-            print("Es wurden " + str(count_pub) + " von " + str(len(base_publications_unique)) + " abgerufen.")
-            continue
+            print(f"Es wurden {count_pub} von {len(base_publications_unique)} abgerufen")
+
+        return referencing_publications
+
+    with ThreadPoolExecutor() as executor:
+        results = list(executor.map(process_publication, base_publications_unique))
+
+    for referencing_publications in results:
+        referencing_pub_unique += referencing_publications
 
     print(f"Anzahl der unique referencing publications: {len(referencing_pub_unique)}")
-
     return referencing_pub_unique
+
 
 
 def process_publication(publication):
@@ -302,7 +350,8 @@ def document_frequency(publications_unique, num_documents):
 
 def calculate_tfidf(term, freq, document_frequency_dict, num_documents):
     if term in document_frequency_dict:
-        return freq * math.log(num_documents / document_frequency_dict[term], 2)
+        tfidf = freq * math.log(num_documents / document_frequency_dict[term], 2)
+        return round(tfidf, 2)  # Rundung auf 2 Nachkommastellen
     return 0
 
 def tfidf(term_lists, document_frequency_dict, num_documents):
@@ -336,13 +385,13 @@ def process_publication_tfidf(publication):
     return publication
 
 
-def assign_tfidf(publications_unique, outputfile):
+def assign_tfidf(publications_unique):
     with ThreadPoolExecutor() as executor:
         # Hinzufügen des Fortschrittsbalkens
         publications_unique = list(tqdm(executor.map(process_publication_tfidf, publications_unique),
                                         total=len(publications_unique),
                                         desc="Verarbeiten der Publikationen"))
-    save_to_json(outputfile, publications_unique)
+    return publications_unique
 
 def save_to_json(filename, data):
     """Hilfsfunktion zum Speichern von Daten in eine JSON-Datei"""
@@ -598,7 +647,7 @@ def enrichment_publications_parallel(base_pub_unique, output_filename="not_found
     print(f"'Not found' Daten wurden in {output_filename} gespeichert.")
     return updated_items
 
-def collect_all_publications(publications_list, filename):
+def collect_all_publications(publications_list):
     publications_unique = []
     publications_unique_id = []
     for publications in publications_list:
@@ -607,7 +656,6 @@ def collect_all_publications(publications_list, filename):
                 publications_unique.append(item)
                 publications_unique_id.append(item['id'])
 
-    save_to_json(filename, publications_unique)
     return publications_unique
 
 def merge_and_deduplicate(list1, list2):
@@ -617,7 +665,7 @@ def merge_and_deduplicate(list1, list2):
 
 def solr_ready (base_publications_unique):
     # Behalten nur der benötigten Felder
-    necessary_fields = ["id", "title", "authorships", "abstract", "kombinierte Terme referenced_works", "kombinierte Terme referencing_works",
+    necessary_fields = ["id", "title", "abstract", "kombinierte Terme referenced_works", "kombinierte Terme referencing_works",
                         "kombinierte Terme reference_works", "kombinierte Terme co_referenced_works", "kombinierte Terme co_referencing_works",]
     filtered_publications = []
 
@@ -708,11 +756,16 @@ def process_single_publication(pub, id_to_publication, referenced_works_index, r
 
     return pub_id, list(co_referencing_works), list(co_referenced_works)
 
-
-
-
 # Hauptfunktion mit Fortschrittsanzeige
 def add_references_parallel_with_progress(combined_publications_unique):
+    # 0. Erstelle ein Set aller vorhandenen IDs
+    all_ids = {pub['id'] for pub in combined_publications_unique}
+
+    # Bereinige alle referenced_works, um nur IDs zu behalten, die im Set der IDs vorhanden sind
+    for pub in combined_publications_unique:
+        if 'referenced_works' in pub:
+            pub['referenced_works'] = [ref_id for ref_id in pub['referenced_works'] if ref_id in all_ids]
+
     # Indexe erstellen
     id_to_publication = {pub['id']: pub for pub in combined_publications_unique}
     referenced_works_index = {}
@@ -789,101 +842,63 @@ def update_metadata(combined_publications_unique):
     save_to_json("updated_raw_combined_publications_unique_with_references.json", results)
     return results
 
-def compress_json_file(input_file, output_file):
+def compress_json_data(data, output_file):
     """
-    Komprimiert den Inhalt einer JSON-Datei, um Speicherplatz zu sparen.
+    Komprimiert die übergebenen JSON-Daten und speichert sie in einer Datei.
 
-    :param input_file: Pfad zur Eingabedatei im JSON-Format.
+    :param data: JSON-Daten als Eingabe.
     :param output_file: Pfad zur komprimierten Ausgabedatei im GZIP-Format.
     """
     try:
-        # JSON aus der Datei laden und direkt komprimieren
-        with open(input_file, 'r', encoding='utf-8') as infile, gzip.open(output_file, 'wt',
-                                                                          encoding='utf-8') as outfile:
-            data = json.load(infile)  # JSON laden
+        # Komprimiere die JSON-Daten direkt
+        with gzip.open(output_file, 'wt', encoding='utf-8') as outfile:
             json.dump(data, outfile, separators=(',', ':'))  # JSON komprimiert speichern
-        print(f"Die JSON-Datei wurde erfolgreich komprimiert und in {output_file} gespeichert.")
+        print(f"Die JSON-Daten wurden erfolgreich komprimiert und in {output_file} gespeichert.")
     except Exception as e:
         print(f"Fehler bei der Komprimierung: {e}")
 
 # Hauptprogrammfluss
 #Abruf der Metadaten Ausgangspublikation, zitierte und zitierende Publikationen
-"""
-pager = Works().filter(primary_topic={"id": "t10286"}).select(["id", "title", "authorships", "referenced_works", "abstract_inverted_index","referenced_works_count", "cited_by_count"])
-
-base_publications_unique = load_from_json("t10286_raw_base_publications.json")
-
-#base_publications_unique = get_by_api(pager, "t10286_raw_base_publications.json")
-#referenced_publications_unique = get_referenced_works(base_publications_unique, "t10286_raw_referenced_publications_unique.json")
-#referencing_publications_unique = get_referencing_works(base_publications_unique, "t10286_raw_referencing_publications_unique.json", "t10286_raw_base_publications.json")
-
-referenced_publications_unique = load_from_json("t10286_raw_referenced_publications_unique.json")
-referencing_publications_unique = load_from_json("t10286_raw_referencing_publications_unique.json")
-
-co_referenced_publications_unique = get_referenced_works(referencing_publications_unique, "t10286_raw_co_referenced_publications_unique.json")
-co_referencing_publications_unique = get_referencing_works(referenced_publications_unique, "t10286_raw_co_referencing_publications_unique.json", "t10286_raw_referenced_publications_unique.json")
-"""
-"""
-pager = Works().filter(ids={"openalex": "W4385569780"}).select(["id", "title", "authorships", "referenced_works", "abstract_inverted_index", "cited_by_count","referenced_works_count","language"])
-
-base_publications_unique = get_by_api(pager, "W4385569780_test_raw_base_publications.json")
-referenced_publications_unique = get_referenced_works(base_publications_unique, "W4385569780_test_raw_referenced_publications_unique.json")
-referencing_publications_unique = get_referencing_works(base_publications_unique, "W4385569780_test_raw_referencing_publications_unique.json", "W4385569780_test_raw_base_publications.json")
-
-#co_referencing_publications_unique = get_referencing_works(referenced_publications_unique, "W3123811550_raw_co_referencing_publications_unique.json", "W3123811550_raw_referenced_publications_unique.json")
-#co_referenced_publications_unique = get_referenced_works(referencing_publications_unique, "W3123811550_raw_co_referenced_publications_unique.json")
-
-# Zusammenführung aller Publikationen (Ausgangspublikationen, zitierte und zitierende Publikationen) zur Berechnung der Document Frequency der einzelnen Terme
-combined_publications_unique = collect_all_publications([base_publications_unique, referenced_publications_unique, referencing_publications_unique], "W4385569780_test_raw_combined_publications_unique.json")
-#reference_publications_unique = collect_all_publications([referenced_publications_unique, referencing_publications_unique, co_referenced_publications_unique, co_referencing_publications_unique], "W3123811550_raw_reference_publications_unique.json")
-"""
-"""
-pager = Works().filter(primary_location={"source.id": "S4306418959|S197106261|S2496055428"}).select(["id", "title", "authorships", "referenced_works", "abstract_inverted_index", "cited_by_count","referenced_works_count","language"])
-
-base_publications_unique = get_by_api(pager, "S4306418959_raw_base_publications.json")
-referenced_publications_unique = get_referenced_works(base_publications_unique, "S4306418959_raw_referenced_publications_unique.json")
-referencing_publications_unique = get_referencing_works(base_publications_unique, "S4306418959_raw_referencing_publications_unique.json", "S4306418959_raw_base_publications.json")
-
-base_publications_unique = load_from_json("S4306418959_raw_base_publications.json")
-referenced_publications_unique = load_from_json("S4306418959_raw_referenced_publications_unique.json")
-referencing_publications_unique = load_from_json("S4306418959_raw_referencing_publications_unique.json")
-
-co_referencing_publications_unique = get_referencing_works(referenced_publications_unique, "S4306418959_raw_co_referencing_publications_unique.json", "S4306418959_raw_referenced_publications_unique.json")
-co_referenced_publications_unique = get_referenced_works(referencing_publications_unique, "S4306418959_raw_co_referenced_publications_unique.json")
-
-# Zusammenführung aller Publikationen (Ausgangspublikationen, zitierte und zitierende Publikationen) zur Berechnung der Document Frequency der einzelnen Terme
-combined_publications_unique = collect_all_publications([base_publications_unique, referenced_publications_unique, referencing_publications_unique, co_referenced_publications_unique, co_referencing_publications_unique], "S4306418959_raw_combined_publications_unique.json")
-reference_publications_unique = collect_all_publications([referenced_publications_unique, referencing_publications_unique, co_referenced_publications_unique, co_referencing_publications_unique], "S4306418959_raw_reference_publications_unique.json")
-
-consistency_check(base_publications_unique, referenced_publications_unique, referencing_publications_unique, co_referenced_publications_unique, co_referencing_publications_unique)
-"""
-
-# Speicherung der nicht-angereicherten Metadaten
 if __name__ == "__main__":
-    # Initialisieren Sie hier die `combined_publications_unique`-Daten entsprechend
-    test_data = process_large_json("W4385569780_test_combined_publications_unique.json")
+    pager = Works().filter(primary_location={"source.id": "s79460864|s197106261|s4306418959|s2496055428|s4210204422|s4306420562|s4306418323|s4363608773|s4210223861|s817957|s4306418441|s6756005"}).select(
+        ["id", "title",  "referenced_works", "abstract_inverted_index", "cited_by_count",
+         "referenced_works_count", "language"])
+
+    #pager = Works().filter(primary_topic={"id": "t10286"}).select(["id", "title", "referenced_works", "abstract_inverted_index","referenced_works_count", "cited_by_count"])
+
+    #base_publications_unique = get_by_api(pager, "raw_IR_journals_conferences_base_publications.json")
+    base_publications_unique = load_from_json("raw_IR_journals_conferences_base_publications.json")
+    referenced_publications_unique = get_referenced_works(base_publications_unique)
+    save_to_json(referenced_publications_unique, "raw_IR_journals_conferences_referenced_publications.json")
+    referencing_publications_unique = get_referencing_works(base_publications_unique)
+    save_to_json(referencing_publications_unique, "raw_IR_journals_conferences_referencing_publications.json")
+
+    co_referenced_publications_unique = get_referenced_works(referencing_publications_unique)
+    co_referencing_publications_unique = get_referencing_works(referenced_publications_unique)
+
+    consistency_check(base_publications_unique, referenced_publications_unique, referencing_publications_unique, co_referenced_publications_unique, co_referencing_publications_unique)
+
+    # Initialisieren Sie hier die `combined_publications_unique`-Daten entsprechend und Speicherung der nicht-angereicherten Metadaten
+    combined_publications_unique = collect_all_publications([base_publications_unique, referenced_publications_unique, referencing_publications_unique])
+    compress_json_data(combined_publications_unique, "raw_IR_journals_conferences_combined_publications.json")
+
     #combined_publications_unique = process_large_json("W4385569780_test_raw_combined_publications_unique.json") #
-    combined_publications_unique = add_references_parallel_with_progress(test_data)
+    combined_publications_unique = add_references_parallel_with_progress(combined_publications_unique)
 
     # Texttransformation Metadaten
     combined_publications_unique = indexing_metadata(combined_publications_unique)
 
    # Anreicherung der Ausgangspublikationen
     combined_publications_unique = enrichment_publications_parallel(combined_publications_unique)
-
     combined_publications_unique = update_metadata(combined_publications_unique)
-    save_to_json("test_data.json",combined_publications_unique)
+    compress_json_data(combined_publications_unique, "processed_IR_journals_conferences_combined_publications.json")
+
 
     # Anwendung von tf-idf
-
     num_documents = len(combined_publications_unique)
     document_frequency_dict = document_frequency(combined_publications_unique, num_documents)
-"""
-    save_to_json("W4385569780_test_processed_combined_publications_unique.json", combined_publications_unique)
+    combined_publications_unique = assign_tfidf(combined_publications_unique)
+    compress_json_data(combined_publications_unique, "tfidf_IR_journals_conferences_combined_publications.json")
 
-    publications_unique = assign_tfidf(publications_unique, "W4385569780_test_combined_publications_unique.json")
-
-    compress_json_file("IR_publications.json", "IR_publications_compressed.gz")
-
-    # save_to_json("publications.json", solr_ready(base_publications_unique))
-"""
+    # Bereinigung für Solr
+    compress_json_data(solr_ready(combined_publications_unique), "IR_journals_conferences_combined_publications.gz")
